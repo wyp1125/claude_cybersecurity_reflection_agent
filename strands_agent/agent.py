@@ -1,6 +1,6 @@
 import os
 
-from amazon_bedrock_agentcore import BedrockAgentCoreApp
+from bedrock_agentcore import BedrockAgentCoreApp
 from strands import Agent
 from strands.models.bedrock import BedrockModel
 
