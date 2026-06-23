@@ -6,11 +6,13 @@ on:
     paths:
       - "strands_agent/**"
       - "terraform/agentcore/**"
+      - ".github/workflows/deploy_strands_agent.yml"
   pull_request:
     branches: [main]
     paths:
       - "strands_agent/**"
       - "terraform/agentcore/**"
+      - ".github/workflows/deploy_strands_agent.yml"
 
 env:
   AWS_REGION: us-east-1
