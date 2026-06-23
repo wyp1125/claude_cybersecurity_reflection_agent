@@ -1,7 +1,11 @@
 import json
+import sys
 import uuid
 
 import boto3
+
+# Ensure Unicode output works on Windows terminals
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 RUNTIME_NAME = "cybersecurity_reflection_agent"
 REGION = "us-east-1"
@@ -32,14 +36,8 @@ def invoke(input_text: str, session_id: str | None = None) -> dict:
         payload=json.dumps({"inputText": input_text}).encode(),
     )
 
-    print("Response keys:", list(response.keys()))
-    # find the first StreamingBody-like value and read it
-    for key, val in response.items():
-        if hasattr(val, "read"):
-            raw = val.read()
-            print(f"Read from key '{key}':", raw[:200])
-            return json.loads(raw)
-    raise KeyError(f"No readable body found in response. Keys: {list(response.keys())}")
+    raw = response["response"].read()
+    return json.loads(raw)
 
 
 if __name__ == "__main__":
