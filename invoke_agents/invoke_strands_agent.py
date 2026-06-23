@@ -10,12 +10,12 @@ _control_client = boto3.client("bedrock-agentcore-control", region_name=REGION)
 _runtime_client = boto3.client("bedrock-agentcore", region_name=REGION)
 
 
-def _get_runtime_id(runtime_name: str) -> str:
-    """Look up the AgentCore runtime ID by name."""
+def _get_runtime_arn(runtime_name: str) -> str:
+    """Look up the AgentCore runtime ARN by name."""
     response = _control_client.list_agent_runtimes()
     for runtime in response.get("agentRuntimes", []):
         if runtime["agentRuntimeName"] == runtime_name:
-            return runtime["agentRuntimeId"]
+            return runtime["agentRuntimeArn"]
     raise ValueError(f"AgentCore runtime '{runtime_name}' not found in {REGION}")
 
 
@@ -24,12 +24,12 @@ def invoke(input_text: str, session_id: str | None = None) -> dict:
     if session_id is None:
         session_id = str(uuid.uuid4())
 
-    runtime_id = _get_runtime_id(RUNTIME_NAME)
+    runtime_arn = _get_runtime_arn(RUNTIME_NAME)
 
     response = _runtime_client.invoke_agent_runtime(
-        agentRuntimeId=runtime_id,
-        sessionId=session_id,
-        body=json.dumps({"inputText": input_text}),
+        agentRuntimeArn=runtime_arn,
+        runtimeSessionId=session_id,
+        payload=json.dumps({"inputText": input_text}).encode(),
     )
 
     body = response["body"].read()
