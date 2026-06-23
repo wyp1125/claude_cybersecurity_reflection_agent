@@ -107,9 +107,39 @@ jobs:
           docker push $REGISTRY/${{ env.PROJECT_NAME }}:${{ env.IMAGE_TAG }}
           docker push $REGISTRY/${{ env.PROJECT_NAME }}:latest
 
-      # ── Step 3: deploy AgentCore runtime with the new image ───────────────────
-      - name: Deploy AgentCore Runtime
+      # ── Step 3: create or update the AgentCore runtime via AWS CLI ──────────────
+      - name: Get Terraform outputs
+        id: tf-outputs
         working-directory: terraform/agentcore
         run: |
-          terraform apply -auto-approve \
-            -var="image_tag=${{ env.IMAGE_TAG }}"
+          echo "role_arn=$(terraform output -raw agentcore_role_arn)" >> $GITHUB_OUTPUT
+          echo "ecr_url=$(terraform output -raw ecr_repository_url)"  >> $GITHUB_OUTPUT
+
+      - name: Deploy AgentCore Runtime
+        env:
+          AGENT_NAME: ${{ env.PROJECT_NAME }}
+          ROLE_ARN:   ${{ steps.tf-outputs.outputs.role_arn }}
+          IMAGE_URI:  ${{ steps.tf-outputs.outputs.ecr_url }}:${{ env.IMAGE_TAG }}
+        run: |
+          ARTIFACT=$(printf '{"containerConfiguration":{"containerUri":"%s"}}' "$IMAGE_URI")
+
+          RUNTIME_ID=$(aws bedrock-agentcore list-agent-runtimes \
+            --region ${{ env.AWS_REGION }} \
+            --query "agentRuntimeSummaries[?agentRuntimeName=='$AGENT_NAME'].agentRuntimeId | [0]" \
+            --output text 2>/dev/null || echo "")
+
+          if [ -z "$RUNTIME_ID" ] || [ "$RUNTIME_ID" = "None" ]; then
+            echo "Creating AgentCore runtime..."
+            aws bedrock-agentcore create-agent-runtime \
+              --agent-runtime-name "$AGENT_NAME" \
+              --role-arn "$ROLE_ARN" \
+              --agent-runtime-artifact "$ARTIFACT" \
+              --region ${{ env.AWS_REGION }}
+          else
+            echo "Updating AgentCore runtime $RUNTIME_ID..."
+            aws bedrock-agentcore update-agent-runtime \
+              --agent-runtime-id "$RUNTIME_ID" \
+              --role-arn "$ROLE_ARN" \
+              --agent-runtime-artifact "$ARTIFACT" \
+              --region ${{ env.AWS_REGION }}
+          fi
