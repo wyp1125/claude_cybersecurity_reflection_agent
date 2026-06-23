@@ -1,0 +1,115 @@
+name: Deploy Strands Agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "strands_agent/**"
+      - "terraform/agentcore/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "strands_agent/**"
+      - "terraform/agentcore/**"
+
+env:
+  AWS_REGION: us-east-1
+  PROJECT_NAME: cybersecurity-reflection-agent
+  TF_VERSION: "~1.9"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # ── PR: validate Terraform only ──────────────────────────────────────────────
+  terraform-plan:
+    name: Terraform Plan
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/agentcore
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -var="image_tag=latest" -no-color
+
+  # ── Main branch: build image → provision infra → deploy ──────────────────────
+  deploy:
+    name: Build & Deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ── Step 1: provision ECR and IAM first (required before image push) ──────
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: terraform/agentcore
+        run: terraform init
+
+      - name: Provision ECR & IAM
+        working-directory: terraform/agentcore
+        run: |
+          terraform apply -auto-approve \
+            -target=aws_ecr_repository.agent \
+            -target=aws_ecr_lifecycle_policy.agent \
+            -target=aws_iam_role.agentcore \
+            -target=aws_iam_role_policy.bedrock_invoke \
+            -target=aws_iam_role_policy.ecr_pull \
+            -target=aws_iam_role_policy.cloudwatch_logs \
+            -var="image_tag=${{ env.IMAGE_TAG }}"
+
+      # ── Step 2: build and push the agent image ────────────────────────────────
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          docker build \
+            -t $REGISTRY/${{ env.PROJECT_NAME }}:${{ env.IMAGE_TAG }} \
+            -t $REGISTRY/${{ env.PROJECT_NAME }}:latest \
+            strands_agent/
+          docker push $REGISTRY/${{ env.PROJECT_NAME }}:${{ env.IMAGE_TAG }}
+          docker push $REGISTRY/${{ env.PROJECT_NAME }}:latest
+
+      # ── Step 3: deploy AgentCore runtime with the new image ───────────────────
+      - name: Deploy AgentCore Runtime
+        working-directory: terraform/agentcore
+        run: |
+          terraform apply -auto-approve \
+            -var="image_tag=${{ env.IMAGE_TAG }}"
