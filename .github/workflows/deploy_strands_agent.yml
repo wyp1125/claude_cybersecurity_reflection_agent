@@ -130,28 +130,20 @@ jobs:
           ROLE_ARN:   ${{ steps.tf-outputs.outputs.role_arn }}
           IMAGE_URI:  ${{ steps.tf-outputs.outputs.ecr_url }}:${{ env.IMAGE_TAG }}
         run: |
-          set -x
+          # AgentCore name must match [a-zA-Z][a-zA-Z0-9_]{0,47} — replace hyphens
+          RUNTIME_NAME="${AGENT_NAME//-/_}"
           ARTIFACT=$(printf '{"containerConfiguration":{"containerUri":"%s"}}' "$IMAGE_URI")
-          echo "Artifact: $ARTIFACT"
-          echo "Role ARN: $ROLE_ARN"
-
-          echo "--- Listing existing runtimes ---"
-          aws bedrock-agentcore-control list-agent-runtimes \
-            --region ${{ env.AWS_REGION }} || true
+          NETWORK_CONFIG='{"networkMode":"PUBLIC"}'
 
           RUNTIME_ID=$(aws bedrock-agentcore-control list-agent-runtimes \
             --region ${{ env.AWS_REGION }} \
-            --query "agentRuntimeSummaries[?agentRuntimeName=='$AGENT_NAME'].agentRuntimeId | [0]" \
+            --query "agentRuntimes[?agentRuntimeName=='$RUNTIME_NAME'].agentRuntimeId | [0]" \
             --output text || echo "")
 
-          echo "Existing runtime ID: '$RUNTIME_ID'"
-
-          NETWORK_CONFIG='{"networkMode":"PublicIpEnabled"}'
-
           if [ -z "$RUNTIME_ID" ] || [ "$RUNTIME_ID" = "None" ]; then
-            echo "Creating AgentCore runtime..."
+            echo "Creating AgentCore runtime '$RUNTIME_NAME'..."
             aws bedrock-agentcore-control create-agent-runtime \
-              --agent-runtime-name "$AGENT_NAME" \
+              --agent-runtime-name "$RUNTIME_NAME" \
               --role-arn "$ROLE_ARN" \
               --agent-runtime-artifact "$ARTIFACT" \
               --network-configuration "$NETWORK_CONFIG" \
