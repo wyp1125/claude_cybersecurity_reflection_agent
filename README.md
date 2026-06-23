@@ -1,106 +1,79 @@
 # claude_cybersecurity_reflection_agent
 
-A reflection agent which can map cybersecurity issues to preventive controls using Claude, Bedrock, Strands Agents, and AgentCore.
+A cybersecurity assistant that maps cybersecurity issues to NIST 800-53 security and privacy controls using Amazon Bedrock Agents and Claude Haiku 4.5.
 
 ## Architecture
 
 ```
-GitHub Actions → ECR (Docker image) → Terraform → AgentCore Runtime
-                                                        ↓
-                                              Strands Agent (HTTP server)
-                                                        ↓
-                                              Amazon Bedrock (Claude Haiku 4.5)
+GitHub Actions → Terraform → Amazon Bedrock Agent (Claude Haiku 4.5)
+                                        ↓
+                             invoke_agents/invoke_bedrock_agent.py
+                             (local invocation client)
 ```
 
 ## Prerequisites
 
 | Requirement | Notes |
 |---|---|
-| AWS account | With Bedrock model access for `anthropic.claude-haiku-4-5-20251001-v1:0` |
-| S3 bucket | `bdx-agentic-ai` — Terraform state stored at `terraform/cybersecurity-reflection-agent/terraform.tfstate` |
-| IAM user/role | With ECR, CloudFormation, IAM, and Bedrock permissions for CI/CD |
-| GitHub secrets | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
+| AWS account | With Bedrock model access for `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
+| S3 bucket | `bdx-agentic-ai` — Terraform state stored at `terraform/bedrock-agent/terraform.tfstate` |
+| GitHub OIDC | OIDC provider `token.actions.githubusercontent.com` registered in AWS account |
+| GitHub variable | `AWS_ROLE_ARN` set in **Settings → Secrets and variables → Actions → Variables** |
 
-## Quick start
+## Setup
 
-### 1. Set GitHub secrets
+### 1. Deploy the bootstrap IAM role (one-time, manual)
 
-In **Settings → Secrets and variables → Actions**:
-
-- Secret `AWS_ACCESS_KEY_ID`
-- Secret `AWS_SECRET_ACCESS_KEY`
-
-### 3. Push to main
-
-The GitHub Actions workflow automatically:
-1. Provisions ECR repository and IAM role
-2. Builds and pushes the Docker image
-3. Creates/updates the AgentCore runtime via CloudFormation
-
-### Local development
+Creates the IAM role GitHub Actions uses to authenticate via OIDC:
 
 ```bash
-# Run the agent locally (requires AWS credentials and Bedrock access)
-cd app
-pip install -r requirements.txt
-BEDROCK_MODEL_ID=anthropic.claude-haiku-4-5-20251001-v1:0 python server.py
-
-# Test it
-curl -s -X POST http://localhost:8080/ \
-  -H 'Content-Type: application/json' \
-  -d '{"inputText": "SQL injection vulnerability in our login endpoint"}' | jq .
-```
-
-### Local Terraform
-
-```bash
-cd terraform
+cd terraform/bootstrap
 terraform init
-terraform plan -var="image_tag=latest"
+terraform apply
 ```
 
-## Invoking the deployed agent
+Copy the `role_arn` output and set it as a GitHub Actions repository variable:
 
-After deployment, get the endpoint URL from Terraform outputs:
+**Settings → Secrets and variables → Actions → Variables → New repository variable**
+
+| Name | Value |
+|---|---|
+| `AWS_ROLE_ARN` | `arn:aws:iam::925680695682:role/github_actions_claude_cybersecurity_reflection_agent_role` |
+
+### 2. Push to main
+
+The `deploy_bedrock_agent` GitHub Actions workflow automatically runs `terraform apply` to provision the Bedrock Agent in AWS. It triggers on any change to `terraform/bedrock_agent/**`.
+
+## Invoking the agent locally
 
 ```bash
-cd terraform
-terraform output agentcore_endpoint_url
+pip install boto3
+python invoke_agents/invoke_bedrock_agent.py
 ```
 
-Then invoke via the AgentCore API:
-
-```bash
-aws bedrock-agentcore invoke-agent-runtime \
-  --agent-runtime-id <runtime-id> \
-  --region us-east-1 \
-  --body '{"inputText": "Describe controls for preventing credential stuffing attacks"}'
 ```
+Describe your cybersecurity issue: SQL injection in our login endpoint
+```
+
+The script auto-discovers the agent ID from AWS by name — no environment variables required. AWS credentials must be configured in your environment (e.g. `~/.aws/credentials` or environment variables).
 
 ## Project structure
 
 ```
-├── app/
-│   ├── server.py          # Strands agent + AgentCore HTTP server
-│   ├── requirements.txt
-│   └── Dockerfile
+├── invoke_agents/
+│   └── invoke_bedrock_agent.py   # Local client to invoke the deployed Bedrock Agent
 ├── terraform/
-│   ├── providers.tf       # AWS provider + S3 backend
-│   ├── variables.tf
-│   ├── ecr.tf             # ECR repository
-│   ├── iam.tf             # AgentCore IAM role and policies
-│   ├── agentcore.tf       # AgentCore runtime (CloudFormation)
-│   └── outputs.tf
+│   ├── bootstrap/
+│   │   └── main.tf               # One-time: GitHub Actions OIDC IAM role
+│   └── bedrock_agent/
+│       └── main.tf               # Bedrock Agent, IAM role, and outputs
 └── .github/workflows/
-    └── deploy.yml         # CI/CD: plan on PR, build+deploy on main
+    ├── deploy.yml                 # AgentCore runtime CI/CD (future use)
+    └── deploy_bedrock_agent.yml   # Bedrock Agent CI/CD: plan on PR, apply on main
 ```
 
 ## Notes
 
-- **CloudFormation resource type**: `AWS::BedrockAgentCore::AgentRuntime` must be available in your region. Verify with:
-  ```bash
-  aws cloudformation describe-type --type RESOURCE \
-    --type-name AWS::BedrockAgentCore::AgentRuntime
-  ```
-- **Model access**: Enable the Haiku model in the [Bedrock console](https://console.aws.amazon.com/bedrock/home#/modelaccess) before deploying.
-- **Image tag strategy**: Each push to `main` tags the image with the git SHA and also updates `latest`.
+- **Model access**: Enable `us.anthropic.claude-haiku-4-5-20251001-v1:0` (cross-region inference profile) in the [Bedrock console](https://console.aws.amazon.com/bedrock/home#/modelaccess) before deploying.
+- **Bootstrap state**: `terraform/bootstrap/` uses local Terraform state and is excluded from version control (except `main.tf`). Run it once manually before any CI/CD workflows.
+- **DRAFT alias**: The agent is invoked via the built-in `TSTALIASID` alias, which always points to the latest DRAFT version. No separate alias resource is needed.
