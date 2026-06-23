@@ -1,13 +1,8 @@
-import json
-import logging
 import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
 
+from amazon_bedrock_agentcore import BedrockAgentCoreApp
 from strands import Agent
 from strands.models.bedrock import BedrockModel
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "You are a cybersecurity assistant that maps cybersecurity issues to NIST 800-53 "
@@ -16,6 +11,8 @@ SYSTEM_PROMPT = (
     "Work with whatever information is provided and output the most applicable controls "
     "with a brief explanation of why each control applies."
 )
+
+app = BedrockAgentCoreApp()
 
 _agent = Agent(
     model=BedrockModel(
@@ -27,28 +24,11 @@ _agent = Agent(
 )
 
 
-class AgentHandler(BaseHTTPRequestHandler):
-    def do_POST(self):
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length) or b"{}")
-            result = _agent(body.get("inputText", ""))
-
-            response = json.dumps({"response": str(result)}).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(response)
-        except Exception as exc:
-            logger.exception("Error handling request: %s", exc)
-            self.send_response(500)
-            self.end_headers()
-
-    def log_message(self, fmt, *args):
-        logger.info(fmt, *args)
+@app.entrypoint
+def invoke(payload):
+    result = _agent(payload.get("inputText", ""))
+    return {"response": str(result)}
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    logger.info("Starting agent server on port %d", port)
-    HTTPServer(("0.0.0.0", port), AgentHandler).serve_forever()
+    app.run()

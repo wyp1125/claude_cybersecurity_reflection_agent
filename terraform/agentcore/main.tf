@@ -136,49 +136,16 @@ resource "aws_iam_role_policy" "cloudwatch_logs" {
   })
 }
 
-# ── AgentCore runtime (CloudFormation) ────────────────────────────────────────
-
-resource "aws_cloudformation_stack" "agentcore" {
-  name = local.agent_name
-
-  template_body = jsonencode({
-    AWSTemplateFormatVersion = "2010-09-09"
-    Resources = {
-      AgentRuntime = {
-        Type = "AWS::BedrockAgentCore::AgentRuntime"
-        Properties = {
-          AgentRuntimeName = local.agent_name
-          Description      = "Cybersecurity NIST 800-53 control mapping agent"
-          RoleArn          = aws_iam_role.agentcore.arn
-          AgentRuntimeArtifact = {
-            ContainerConfiguration = {
-              ContainerUri = "${local.ecr_url}:${var.image_tag}"
-            }
-          }
-        }
-      }
-    }
-    Outputs = {
-      AgentRuntimeId = {
-        Description = "AgentCore runtime ID"
-        Value       = { Ref = "AgentRuntime" }
-      }
-    }
-  })
-
-  depends_on = [
-    aws_iam_role_policy.bedrock_invoke,
-    aws_iam_role_policy.ecr_pull,
-    aws_iam_role_policy.cloudwatch_logs,
-  ]
-}
-
 # ── Outputs ───────────────────────────────────────────────────────────────────
+# AgentCore runtime is deployed via AWS CLI in the CI/CD workflow (step 3),
+# not via Terraform, because AWS::BedrockAgentCore::AgentRuntime is not yet
+# available as a CloudFormation or Terraform resource type.
 
 output "ecr_repository_url" {
   value = aws_ecr_repository.agent.repository_url
 }
 
-output "agentcore_runtime_id" {
-  value = aws_cloudformation_stack.agentcore.outputs["AgentRuntimeId"]
+output "agentcore_role_arn" {
+  description = "Passed to the AgentCore runtime deploy step in CI/CD"
+  value       = aws_iam_role.agentcore.arn
 }
