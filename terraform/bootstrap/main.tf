@@ -153,12 +153,22 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
   }
 
+  # Bedrock — agents, models, inference profiles
+  statement {
+    sid    = "Bedrock"
+    effect = "Allow"
+    actions = [
+      "bedrock:*",
+    ]
+    resources = ["*"]
+  }
+
   # Bedrock AgentCore — create and manage agent runtimes
   statement {
     sid    = "BedrockAgentCore"
     effect = "Allow"
     actions = [
-      "bedrock:*",
+      "bedrock-agentcore:*",
     ]
     resources = ["*"]
   }

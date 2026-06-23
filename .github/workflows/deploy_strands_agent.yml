@@ -108,6 +108,13 @@ jobs:
           docker push $REGISTRY/${{ env.PROJECT_NAME }}:latest
 
       # ── Step 3: create or update the AgentCore runtime via AWS CLI ──────────────
+      - name: Upgrade AWS CLI
+        run: |
+          curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+          unzip -q awscliv2.zip
+          sudo ./aws/install --update
+          aws --version
+
       - name: Get Terraform outputs
         id: tf-outputs
         working-directory: terraform/agentcore
