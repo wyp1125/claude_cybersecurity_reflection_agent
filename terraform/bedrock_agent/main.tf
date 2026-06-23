@@ -78,14 +78,18 @@ resource "aws_bedrockagent_agent" "cybersecurity" {
   depends_on = [aws_iam_role_policy.bedrock_agent]
 }
 
-# ── Agent alias (routes to DRAFT version) ─────────────────────────────────────
+# ── Publish DRAFT as a numbered version, then alias to it ─────────────────────
+
+resource "aws_bedrockagent_agent_version" "prod" {
+  agent_id = aws_bedrockagent_agent.cybersecurity.agent_id
+}
 
 resource "aws_bedrockagent_agent_alias" "prod" {
   agent_alias_name = "prod"
   agent_id         = aws_bedrockagent_agent.cybersecurity.agent_id
 
   routing_configuration {
-    agent_version = "DRAFT"
+    agent_version = aws_bedrockagent_agent_version.prod.agent_version
   }
 }
 
