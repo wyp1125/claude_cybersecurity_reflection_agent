@@ -32,8 +32,8 @@ def invoke(input_text: str, session_id: str | None = None) -> dict:
         payload=json.dumps({"inputText": input_text}).encode(),
     )
 
-    body = response["body"].read()
-    return json.loads(body)
+    raw = response["payload"].read()
+    return json.loads(raw)
 
 
 if __name__ == "__main__":
