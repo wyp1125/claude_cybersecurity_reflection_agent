@@ -39,4 +39,8 @@ def invoke(input_text: str, session_id: str | None = None) -> str:
 
 
 if __name__ == "__main__":
-    print(invoke("What NIST 800-53 controls apply to SQL injection vulnerabilities?"))
+    issue = input("Describe your cybersecurity issue: ").strip()
+    if not issue:
+        print("No input provided.")
+    else:
+        print(invoke(issue))
