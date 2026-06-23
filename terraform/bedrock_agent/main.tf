@@ -78,21 +78,6 @@ resource "aws_bedrockagent_agent" "cybersecurity" {
   depends_on = [aws_iam_role_policy.bedrock_agent]
 }
 
-# ── Publish DRAFT as a numbered version, then alias to it ─────────────────────
-
-resource "aws_bedrockagent_agent_version" "prod" {
-  agent_id = aws_bedrockagent_agent.cybersecurity.agent_id
-}
-
-resource "aws_bedrockagent_agent_alias" "prod" {
-  agent_alias_name = "prod"
-  agent_id         = aws_bedrockagent_agent.cybersecurity.agent_id
-
-  routing_configuration {
-    agent_version = aws_bedrockagent_agent_version.prod.agent_version
-  }
-}
-
 # ── Outputs ───────────────────────────────────────────────────────────────────
 
 output "agent_id" {
@@ -100,7 +85,8 @@ output "agent_id" {
   value       = aws_bedrockagent_agent.cybersecurity.agent_id
 }
 
+# TSTALIASID is the built-in alias AWS creates for every agent's DRAFT version.
 output "agent_alias_id" {
-  description = "Set as BEDROCK_AGENT_ALIAS_ID when invoking agent.py"
-  value       = aws_bedrockagent_agent_alias.prod.agent_alias_id
+  description = "Set as BEDROCK_AGENT_ALIAS_ID when invoking agent.py (built-in DRAFT alias)"
+  value       = "TSTALIASID"
 }
