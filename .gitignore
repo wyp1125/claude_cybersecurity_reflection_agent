@@ -1,0 +1,28 @@
+# Terraform bootstrap — exclude everything except main.tf
+terraform/bootstrap/*
+!terraform/bootstrap/main.tf
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfplan
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.env
+
+# macOS / Windows
+.DS_Store
+Thumbs.db
