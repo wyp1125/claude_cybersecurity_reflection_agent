@@ -93,7 +93,13 @@ jobs:
             -target=aws_iam_role_policy.cloudwatch_logs \
             -var="image_tag=${{ env.IMAGE_TAG }}"
 
-      # ── Step 2: build and push the agent image ────────────────────────────────
+      # ── Step 2: build and push the agent image (arm64 required by AgentCore) ────
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Login to ECR
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
@@ -102,12 +108,12 @@ jobs:
         env:
           REGISTRY: ${{ steps.ecr-login.outputs.registry }}
         run: |
-          docker build \
+          docker buildx build \
+            --platform linux/arm64 \
+            --push \
             -t $REGISTRY/${{ env.PROJECT_NAME }}:${{ env.IMAGE_TAG }} \
             -t $REGISTRY/${{ env.PROJECT_NAME }}:latest \
             strands_agent/
-          docker push $REGISTRY/${{ env.PROJECT_NAME }}:${{ env.IMAGE_TAG }}
-          docker push $REGISTRY/${{ env.PROJECT_NAME }}:latest
 
       # ── Step 3: create or update the AgentCore runtime via AWS CLI ──────────────
       - name: Upgrade AWS CLI
