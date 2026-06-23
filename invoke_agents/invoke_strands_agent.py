@@ -32,8 +32,14 @@ def invoke(input_text: str, session_id: str | None = None) -> dict:
         payload=json.dumps({"inputText": input_text}).encode(),
     )
 
-    raw = response["payload"].read()
-    return json.loads(raw)
+    print("Response keys:", list(response.keys()))
+    # find the first StreamingBody-like value and read it
+    for key, val in response.items():
+        if hasattr(val, "read"):
+            raw = val.read()
+            print(f"Read from key '{key}':", raw[:200])
+            return json.loads(raw)
+    raise KeyError(f"No readable body found in response. Keys: {list(response.keys())}")
 
 
 if __name__ == "__main__":
