@@ -1,9 +1,22 @@
-import os
 import uuid
 
 import boto3
 
-client = boto3.client("bedrock-agent-runtime", region_name="us-east-1")
+AGENT_NAME = "cybersecurity-reflection-agent-bedrock"
+REGION = "us-east-1"
+
+_agent_client = boto3.client("bedrock-agent", region_name=REGION)
+_runtime_client = boto3.client("bedrock-agent-runtime", region_name=REGION)
+
+
+def _get_agent_id(agent_name: str) -> str:
+    """Look up the agent ID by name from AWS."""
+    paginator = _agent_client.get_paginator("list_agents")
+    for page in paginator.paginate():
+        for agent in page["agentSummaries"]:
+            if agent["agentName"] == agent_name:
+                return agent["agentId"]
+    raise ValueError(f"Bedrock Agent '{agent_name}' not found in {REGION}")
 
 
 def invoke(input_text: str, session_id: str | None = None) -> str:
@@ -11,9 +24,9 @@ def invoke(input_text: str, session_id: str | None = None) -> str:
     if session_id is None:
         session_id = str(uuid.uuid4())
 
-    response = client.invoke_agent(
-        agentId=os.environ["BEDROCK_AGENT_ID"],
-        agentAliasId=os.environ.get("BEDROCK_AGENT_ALIAS_ID", "TSTALIASID"),
+    response = _runtime_client.invoke_agent(
+        agentId=_get_agent_id(AGENT_NAME),
+        agentAliasId="TSTALIASID",
         sessionId=session_id,
         inputText=input_text,
     )
