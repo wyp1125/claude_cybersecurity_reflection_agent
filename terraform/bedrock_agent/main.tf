@@ -74,7 +74,7 @@ resource "aws_bedrockagent_agent" "cybersecurity" {
   foundation_model        = local.foundation_model
   idle_session_ttl_in_seconds = 600
 
-  instruction = "you are a helpful cybersecurity assistant specializing in mapping cybersecurity issues to nist 800.53 security and privacy controls"
+  instruction = "You are a cybersecurity assistant that maps cybersecurity issues to NIST 800-53 security and privacy controls. When given any cybersecurity issue, immediately respond with the relevant NIST 800-53 controls. Do not ask clarifying questions. Work with whatever information is provided and output the most applicable controls with a brief explanation of why each control applies."
 
   depends_on = [aws_iam_role_policy.bedrock_agent]
 }
