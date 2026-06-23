@@ -19,7 +19,7 @@ provider "aws" {
 
 locals {
   agent_name   = "cybersecurity-reflection-agent-bedrock"
-  foundation_model = "anthropic.claude-haiku-4-5-20251001-v1:0"
+  foundation_model = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
   account_id   = "925680695682"
 }
 
@@ -54,7 +54,8 @@ data "aws_iam_policy_document" "bedrock_agent_permissions" {
     effect  = "Allow"
     actions = ["bedrock:InvokeModel"]
     resources = [
-      "arn:aws:bedrock:us-east-1::foundation-model/${local.foundation_model}",
+      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+      "arn:aws:bedrock:us-east-1:${local.account_id}:inference-profile/${local.foundation_model}",
     ]
   }
 }
