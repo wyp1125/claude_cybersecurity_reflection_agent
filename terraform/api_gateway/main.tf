@@ -388,11 +388,10 @@ resource "aws_lambda_function" "stream_agent" {
 
   environment {
     variables = {
-      DYNAMODB_TABLE    = aws_dynamodb_table.user_access.name
-      REGION            = local.region
-      USER_POOL_ID      = aws_cognito_user_pool.main.id
-      COGNITO_CLIENT_ID = aws_cognito_user_pool_client.main.id
-      BEDROCK_MODEL_ID  = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+      DYNAMODB_TABLE   = aws_dynamodb_table.user_access.name
+      REGION           = local.region
+      USER_POOL_ID     = aws_cognito_user_pool.main.id
+      BEDROCK_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
     }
   }
 }

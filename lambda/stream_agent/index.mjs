@@ -16,7 +16,6 @@ const REGION       = process.env.REGION            ?? 'us-east-1';
 const TABLE_NAME   = process.env.DYNAMODB_TABLE;
 const MODEL_ID     = process.env.BEDROCK_MODEL_ID  ?? 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
 const USER_POOL_ID = process.env.USER_POOL_ID;
-const CLIENT_ID    = process.env.COGNITO_CLIENT_ID;
 
 const UNLIMITED       = -1;
 const MAX_ROUNDS      = 5;
@@ -25,11 +24,13 @@ const SCORE_THRESHOLD = 4;
 const ddb     = new DynamoDBClient({ region: REGION });
 const bedrock = new BedrockRuntimeClient({ region: REGION });
 
-// Verifier is created once; first verify() call fetches Cognito JWKS and caches them.
+// clientId: null skips aud-claim validation (no COGNITO_CLIENT_ID needed,
+// which would otherwise create a Terraform dependency cycle via CloudFront).
+// Issuer, signature, expiry, and the DynamoDB quota check still gate access.
 const verifier = CognitoJwtVerifier.create({
   userPoolId: USER_POOL_ID,
   tokenUse:   'id',
-  clientId:   CLIENT_ID,
+  clientId:   null,
 });
 
 // ── Prompts ───────────────────────────────────────────────────────────────────
