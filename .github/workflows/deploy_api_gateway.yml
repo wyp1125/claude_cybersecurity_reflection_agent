@@ -134,6 +134,7 @@ jobs:
           EOF
 
       - name: Deploy to S3
+        working-directory: ${{ github.workspace }}
         run: |
           aws s3 sync chatbot/dist/ s3://${{ steps.tf.outputs.bucket }} \
             --delete \
@@ -147,6 +148,7 @@ jobs:
             --include "assets/*"
 
       - name: Invalidate CloudFront cache
+        working-directory: ${{ github.workspace }}
         run: |
           aws cloudfront create-invalidation \
             --distribution-id ${{ steps.tf.outputs.cf_id }} \
