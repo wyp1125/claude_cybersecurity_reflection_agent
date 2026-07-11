@@ -41,7 +41,7 @@ export async function invokeAgent(apiUrl, idToken, inputText) {
 export async function invokeAgentStreaming(streamUrl, idToken, inputText, callbacks = {}) {
   const resp = await fetch(streamUrl, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+    headers: { 'X-User-Token': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ inputText }),
   })
 

@@ -142,7 +142,8 @@ export const handler = awslambda.streamifyResponse(async (event, responseStream)
 
   try {
     // ── Auth ──────────────────────────────────────────────────────────────────
-    const authHeader = event.headers?.authorization ?? event.headers?.Authorization ?? '';
+    // CloudFront OAC overwrites Authorization with SigV4; JWT is forwarded in X-User-Token.
+    const authHeader = event.headers?.['x-user-token'] ?? '';
     const token = authHeader.replace(/^Bearer\s+/i, '');
     let claims;
     try {

@@ -384,7 +384,7 @@ resource "aws_lambda_function" "stream_agent" {
   runtime          = "nodejs22.x"
   filename         = data.archive_file.stream_agent.output_path
   source_code_hash = data.archive_file.stream_agent.output_base64sha256
-  timeout          = 29
+  timeout          = 55
 
   environment {
     variables = {
@@ -397,35 +397,22 @@ resource "aws_lambda_function" "stream_agent" {
   }
 }
 
+# Lambda Function URL — AWS_IAM auth so only CloudFront OAC can invoke it directly.
+# The public stream endpoint is https://<cloudfront>/stream, which CloudFront
+# SigV4-signs before forwarding here. No public access or CORS needed.
 resource "aws_lambda_function_url" "stream_agent" {
   function_name      = aws_lambda_function.stream_agent.function_name
-  authorization_type = "NONE"
+  authorization_type = "AWS_IAM"
   invoke_mode        = "RESPONSE_STREAM"
-
-  cors {
-    allow_credentials = false
-    allow_headers     = ["authorization", "content-type"]
-    allow_methods     = ["POST"]
-    allow_origins = [
-      "http://localhost:3000",
-      "https://${aws_cloudfront_distribution.chatbot.domain_name}",
-    ]
-    max_age = 300
-  }
 }
 
-# Allow public invocation of the Function URL.
-# AWS does NOT auto-create this policy via API — only the console does.
-# Using a distinct statement_id (not "FunctionURLAllowPublicAccess") avoids
-# ResourceConflictException if a cancelled run already created that statement.
-resource "aws_lambda_permission" "stream_function_url" {
-  statement_id           = "AllowPublicFunctionURLInvoke"
-  action                 = "lambda:InvokeFunctionUrl"
-  function_name          = aws_lambda_function.stream_agent.function_name
-  principal              = "*"
-  function_url_auth_type = "NONE"
-
-  depends_on = [aws_lambda_function_url.stream_agent]
+# Allow CloudFront (and only this distribution) to invoke the Function URL.
+resource "aws_lambda_permission" "stream_cloudfront" {
+  statement_id  = "AllowCloudFrontInvoke"
+  action        = "lambda:InvokeFunctionUrl"
+  function_name = aws_lambda_function.stream_agent.function_name
+  principal     = "cloudfront.amazonaws.com"
+  source_arn    = aws_cloudfront_distribution.chatbot.arn
 }
 
 # ── S3 bucket for chatbot static files ───────────────────────────────────────
@@ -451,16 +438,62 @@ resource "aws_cloudfront_origin_access_control" "chatbot" {
   signing_protocol                  = "sigv4"
 }
 
+# OAC for the Lambda Function URL origin — CloudFront uses this to SigV4-sign
+# requests forwarded to the stream Lambda.
+resource "aws_cloudfront_origin_access_control" "stream_lambda" {
+  name                              = "${local.project_name}-stream"
+  origin_access_control_origin_type = "lambda"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
 resource "aws_cloudfront_distribution" "chatbot" {
   enabled             = true
   default_root_object = "index.html"
 
+  # ── S3 origin (static chatbot files) ─────────────────────────────────────────
   origin {
     domain_name              = aws_s3_bucket.chatbot.bucket_regional_domain_name
     origin_id                = "s3-chatbot"
     origin_access_control_id = aws_cloudfront_origin_access_control.chatbot.id
   }
 
+  # ── Lambda Function URL origin (streaming agent) ──────────────────────────────
+  origin {
+    # Strip "https://" and trailing "/" from the Function URL
+    domain_name              = trimsuffix(trimprefix(aws_lambda_function_url.stream_agent.function_url, "https://"), "/")
+    origin_id                = "lambda-stream"
+    origin_access_control_id = aws_cloudfront_origin_access_control.stream_lambda.id
+
+    custom_origin_config {
+      http_port                = 80
+      https_port               = 443
+      origin_protocol_policy   = "https-only"
+      origin_ssl_protocols     = ["TLSv1.2"]
+      # Allow up to 58 s for the streaming response (Lambda timeout = 55 s)
+      origin_read_timeout      = 58
+      origin_keepalive_timeout = 5
+    }
+  }
+
+  # ── /stream → Lambda (POST, no caching, forward all headers) ─────────────────
+  ordered_cache_behavior {
+    path_pattern     = "/stream"
+    target_origin_id = "lambda-stream"
+
+    allowed_methods = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods  = ["GET", "HEAD"]
+
+    viewer_protocol_policy = "redirect-to-https"
+    compress               = false
+
+    # CachingDisabled (AWS managed policy)
+    cache_policy_id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+    # AllViewerExceptHostHeader — forwards Authorization, X-User-Token, etc.
+    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac"
+  }
+
+  # ── Default → S3 (static files) ───────────────────────────────────────────────
   default_cache_behavior {
     allowed_methods        = ["GET", "HEAD", "OPTIONS"]
     cached_methods         = ["GET", "HEAD"]
@@ -477,7 +510,7 @@ resource "aws_cloudfront_distribution" "chatbot" {
     max_ttl     = 86400
   }
 
-  # Route any path to index.html so the React app handles client-side routing
+  # Route unknown S3 paths to index.html for React SPA routing
   custom_error_response {
     error_code         = 403
     response_code      = 200
@@ -558,6 +591,6 @@ output "cloudfront_url" {
 }
 
 output "stream_url" {
-  description = "Lambda Function URL for streaming responses"
-  value       = aws_lambda_function_url.stream_agent.function_url
+  description = "CloudFront /stream endpoint (proxied to Lambda with OAC signing)"
+  value       = "https://${aws_cloudfront_distribution.chatbot.domain_name}/stream"
 }
