@@ -397,6 +397,14 @@ resource "aws_lambda_function" "stream_agent" {
   }
 }
 
+resource "aws_lambda_permission" "stream_function_url" {
+  statement_id           = "FunctionURLAllowPublicAccess"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.stream_agent.function_name
+  principal              = "*"
+  function_url_auth_type = "NONE"
+}
+
 resource "aws_lambda_function_url" "stream_agent" {
   function_name      = aws_lambda_function.stream_agent.function_name
   authorization_type = "NONE"
