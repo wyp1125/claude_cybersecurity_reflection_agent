@@ -136,16 +136,14 @@ jobs:
       - name: Deploy to S3
         working-directory: ${{ github.workspace }}
         run: |
+          # index.html and config.json — no-cache so browsers always fetch fresh
           aws s3 sync chatbot/dist/ s3://${{ steps.tf.outputs.bucket }} \
             --delete \
             --cache-control "no-cache" \
-            --exclude "*.html" \
-            --exclude "config.json"
-          aws s3 sync chatbot/dist/ s3://${{ steps.tf.outputs.bucket }} \
-            --delete \
-            --cache-control "public, max-age=31536000, immutable" \
-            --exclude "*" \
-            --include "assets/*"
+            --exclude "assets/*"
+          # Vite assets have content hashes in filenames — safe to cache forever
+          aws s3 sync chatbot/dist/assets/ s3://${{ steps.tf.outputs.bucket }}/assets/ \
+            --cache-control "public, max-age=31536000, immutable"
 
       - name: Invalidate CloudFront cache
         working-directory: ${{ github.workspace }}
