@@ -187,6 +187,158 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
     resources = ["*"]
   }
+
+  # DynamoDB — user access / quota table
+  statement {
+    sid    = "DynamoDB"
+    effect = "Allow"
+    actions = [
+      "dynamodb:CreateTable",
+      "dynamodb:DeleteTable",
+      "dynamodb:DescribeTable",
+      "dynamodb:UpdateTable",
+      "dynamodb:TagResource",
+      "dynamodb:UntagResource",
+      "dynamodb:ListTagsOfResource",
+      "dynamodb:DescribeContinuousBackups",
+      "dynamodb:DescribeTimeToLive",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+    ]
+    resources = ["arn:aws:dynamodb:us-east-1:${local.account_id}:table/*"]
+  }
+
+  # Lambda — pre-signup trigger and invoke function
+  statement {
+    sid    = "Lambda"
+    effect = "Allow"
+    actions = [
+      "lambda:CreateFunction",
+      "lambda:UpdateFunctionCode",
+      "lambda:UpdateFunctionConfiguration",
+      "lambda:DeleteFunction",
+      "lambda:GetFunction",
+      "lambda:GetFunctionConfiguration",
+      "lambda:AddPermission",
+      "lambda:RemovePermission",
+      "lambda:GetPolicy",
+      "lambda:TagResource",
+      "lambda:ListTags",
+      "lambda:CreateFunctionUrlConfig",
+      "lambda:UpdateFunctionUrlConfig",
+      "lambda:DeleteFunctionUrlConfig",
+      "lambda:GetFunctionUrlConfig",
+    ]
+    resources = ["arn:aws:lambda:us-east-1:${local.account_id}:function:*"]
+  }
+
+  # API Gateway HTTP API
+  statement {
+    sid    = "APIGateway"
+    effect = "Allow"
+    actions = [
+      "apigateway:GET",
+      "apigateway:POST",
+      "apigateway:PUT",
+      "apigateway:PATCH",
+      "apigateway:DELETE",
+      "apigateway:TagResource",
+      "apigateway:UntagResource",
+    ]
+    resources = ["arn:aws:apigateway:us-east-1::*"]
+  }
+
+  # S3 — chatbot static files bucket (separate from Terraform state bucket)
+  statement {
+    sid    = "ChatbotS3Bucket"
+    effect = "Allow"
+    actions = [
+      "s3:CreateBucket",
+      "s3:DeleteBucket",
+      "s3:GetBucketAcl",
+      "s3:GetBucketCORS",
+      "s3:GetBucketLocation",
+      "s3:GetBucketObjectLockConfiguration",
+      "s3:GetBucketPolicy",
+      "s3:GetBucketPolicyStatus",
+      "s3:GetBucketPublicAccessBlock",
+      "s3:GetBucketTagging",
+      "s3:GetBucketVersioning",
+      "s3:GetBucketWebsite",
+      "s3:GetEncryptionConfiguration",
+      "s3:GetLifecycleConfiguration",
+      "s3:ListBucket",
+      "s3:PutBucketPolicy",
+      "s3:PutBucketPublicAccessBlock",
+      "s3:PutBucketTagging",
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:ListBucketMultipartUploads",
+      "s3:ListMultipartUploadParts",
+    ]
+    resources = [
+      "arn:aws:s3:::cybersecurity-reflection-agent-chatbot-*",
+      "arn:aws:s3:::cybersecurity-reflection-agent-chatbot-*/*",
+    ]
+  }
+
+  # CloudFront — chatbot distribution
+  statement {
+    sid    = "CloudFront"
+    effect = "Allow"
+    actions = [
+      "cloudfront:CreateDistribution",
+      "cloudfront:DeleteDistribution",
+      "cloudfront:GetDistribution",
+      "cloudfront:GetDistributionConfig",
+      "cloudfront:UpdateDistribution",
+      "cloudfront:TagResource",
+      "cloudfront:UntagResource",
+      "cloudfront:ListTagsForResource",
+      "cloudfront:CreateOriginAccessControl",
+      "cloudfront:DeleteOriginAccessControl",
+      "cloudfront:GetOriginAccessControl",
+      "cloudfront:GetOriginAccessControlConfig",
+      "cloudfront:UpdateOriginAccessControl",
+      "cloudfront:ListOriginAccessControls",
+      "cloudfront:CreateInvalidation",
+      "cloudfront:GetInvalidation",
+    ]
+    resources = ["*"]
+  }
+
+  # Cognito — user pool, identity providers, app clients
+  statement {
+    sid    = "Cognito"
+    effect = "Allow"
+    actions = [
+      "cognito-idp:CreateUserPool",
+      "cognito-idp:DeleteUserPool",
+      "cognito-idp:DescribeUserPool",
+      "cognito-idp:UpdateUserPool",
+      "cognito-idp:CreateUserPoolDomain",
+      "cognito-idp:DeleteUserPoolDomain",
+      "cognito-idp:DescribeUserPoolDomain",
+      "cognito-idp:CreateUserPoolClient",
+      "cognito-idp:DeleteUserPoolClient",
+      "cognito-idp:DescribeUserPoolClient",
+      "cognito-idp:UpdateUserPoolClient",
+      "cognito-idp:CreateIdentityProvider",
+      "cognito-idp:DeleteIdentityProvider",
+      "cognito-idp:DescribeIdentityProvider",
+      "cognito-idp:UpdateIdentityProvider",
+      "cognito-idp:ListUserPools",
+      "cognito-idp:ListUserPoolClients",
+      "cognito-idp:ListIdentityProviders",
+      "cognito-idp:TagResource",
+      "cognito-idp:UntagResource",
+      "cognito-idp:ListTagsForResource",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "github_actions" {

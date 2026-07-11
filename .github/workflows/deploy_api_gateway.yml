@@ -1,0 +1,155 @@
+name: Deploy API Gateway
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lambda/**"
+      - "terraform/api_gateway/**"
+      - "chatbot/**"
+      - ".github/workflows/deploy_api_gateway.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "lambda/**"
+      - "terraform/api_gateway/**"
+      - "chatbot/**"
+      - ".github/workflows/deploy_api_gateway.yml"
+
+env:
+  AWS_REGION: us-east-1
+  TF_VERSION: "~1.9"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # ── PR: validate Terraform only ──────────────────────────────────────────────
+  terraform-plan:
+    name: Terraform Plan
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/api_gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -no-color
+        env:
+          TF_VAR_google_client_id: ${{ vars.GOOGLE_CLIENT_ID }}
+          TF_VAR_google_client_secret: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+
+  # ── Main branch: apply ────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/api_gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      # ── Step 1b: build streaming Lambda package before terraform apply ─────────
+      - name: Install streaming Lambda dependencies
+        working-directory: lambda/stream_agent
+        run: npm install
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+        env:
+          TF_VAR_google_client_id: ${{ vars.GOOGLE_CLIENT_ID }}
+          TF_VAR_google_client_secret: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+
+      # ── Step 2: build the React chatbot and deploy to S3 ─────────────────────
+      - name: Read Terraform outputs
+        id: tf
+        run: |
+          echo "bucket=$(terraform output -raw chatbot_bucket_name)"           >> $GITHUB_OUTPUT
+          echo "cf_id=$(terraform output -raw cloudfront_distribution_id)"     >> $GITHUB_OUTPUT
+          echo "cf_url=$(terraform output -raw cloudfront_url)"                >> $GITHUB_OUTPUT
+          echo "cognito_domain=$(terraform output -raw cognito_domain)"        >> $GITHUB_OUTPUT
+          echo "client_id=$(terraform output -raw user_pool_client_id)"        >> $GITHUB_OUTPUT
+          echo "api_url=$(terraform output -raw api_url)"                      >> $GITHUB_OUTPUT
+          echo "stream_url=$(terraform output -raw stream_url)"                >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: chatbot/package-lock.json
+
+      - name: Install dependencies
+        working-directory: chatbot
+        run: npm ci
+
+      - name: Build chatbot
+        working-directory: chatbot
+        run: npm run build
+
+      - name: Write runtime config
+        working-directory: chatbot
+        run: |
+          cat > dist/config.json <<EOF
+          {
+            "cognitoDomain": "${{ steps.tf.outputs.cognito_domain }}",
+            "clientId": "${{ steps.tf.outputs.client_id }}",
+            "apiUrl": "${{ steps.tf.outputs.api_url }}",
+            "streamUrl": "${{ steps.tf.outputs.stream_url }}",
+            "cloudFrontUrl": "${{ steps.tf.outputs.cf_url }}"
+          }
+          EOF
+
+      - name: Deploy to S3
+        run: |
+          aws s3 sync chatbot/dist/ s3://${{ steps.tf.outputs.bucket }} \
+            --delete \
+            --cache-control "no-cache" \
+            --exclude "*.html" \
+            --exclude "config.json"
+          aws s3 sync chatbot/dist/ s3://${{ steps.tf.outputs.bucket }} \
+            --delete \
+            --cache-control "public, max-age=31536000, immutable" \
+            --exclude "*" \
+            --include "assets/*"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ steps.tf.outputs.cf_id }} \
+            --paths "/*"

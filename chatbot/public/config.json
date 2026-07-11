@@ -1,0 +1,7 @@
+{
+  "cognitoDomain": "https://cybersecurity-reflection-agent-auth.auth.us-east-1.amazoncognito.com",
+  "clientId": "REPLACE_WITH_TERRAFORM_OUTPUT",
+  "apiUrl": "REPLACE_WITH_TERRAFORM_OUTPUT",
+  "streamUrl": "REPLACE_WITH_TERRAFORM_OUTPUT",
+  "cloudFrontUrl": "http://localhost:3000"
+}
