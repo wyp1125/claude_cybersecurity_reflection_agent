@@ -397,14 +397,6 @@ resource "aws_lambda_function" "stream_agent" {
   }
 }
 
-resource "aws_lambda_permission" "stream_function_url" {
-  statement_id           = "FunctionURLAllowPublicAccess"
-  action                 = "lambda:InvokeFunctionUrl"
-  function_name          = aws_lambda_function.stream_agent.function_name
-  principal              = "*"
-  function_url_auth_type = "NONE"
-}
-
 resource "aws_lambda_function_url" "stream_agent" {
   function_name      = aws_lambda_function.stream_agent.function_name
   authorization_type = "NONE"
@@ -420,6 +412,20 @@ resource "aws_lambda_function_url" "stream_agent" {
     ]
     max_age = 300
   }
+}
+
+# Allow public invocation of the Function URL.
+# AWS does NOT auto-create this policy via API — only the console does.
+# Using a distinct statement_id (not "FunctionURLAllowPublicAccess") avoids
+# ResourceConflictException if a cancelled run already created that statement.
+resource "aws_lambda_permission" "stream_function_url" {
+  statement_id           = "AllowPublicFunctionURLInvoke"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.stream_agent.function_name
+  principal              = "*"
+  function_url_auth_type = "NONE"
+
+  depends_on = [aws_lambda_function_url.stream_agent]
 }
 
 # ── S3 bucket for chatbot static files ───────────────────────────────────────
