@@ -230,6 +230,8 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       "lambda:UpdateFunctionUrlConfig",
       "lambda:DeleteFunctionUrlConfig",
       "lambda:GetFunctionUrlConfig",
+      "lambda:ListVersionsByFunction",
+      "lambda:GetFunctionCodeSigningConfig",
     ]
     resources = ["arn:aws:lambda:us-east-1:${local.account_id}:function:*"]
   }
@@ -273,11 +275,13 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       "s3:PutBucketPolicy",
       "s3:PutBucketPublicAccessBlock",
       "s3:PutBucketTagging",
-      "s3:GetObject",
+      "s3:Get*",
+      "s3:List*",
       "s3:PutObject",
       "s3:DeleteObject",
-      "s3:ListBucketMultipartUploads",
-      "s3:ListMultipartUploadParts",
+      "s3:PutBucketPolicy",
+      "s3:PutBucketPublicAccessBlock",
+      "s3:PutBucketTagging",
     ]
     resources = [
       "arn:aws:s3:::cybersecurity-reflection-agent-chatbot-*",
@@ -315,27 +319,22 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     sid    = "Cognito"
     effect = "Allow"
     actions = [
+      "cognito-idp:Get*",
+      "cognito-idp:Describe*",
+      "cognito-idp:List*",
       "cognito-idp:CreateUserPool",
       "cognito-idp:DeleteUserPool",
-      "cognito-idp:DescribeUserPool",
       "cognito-idp:UpdateUserPool",
       "cognito-idp:CreateUserPoolDomain",
       "cognito-idp:DeleteUserPoolDomain",
-      "cognito-idp:DescribeUserPoolDomain",
       "cognito-idp:CreateUserPoolClient",
       "cognito-idp:DeleteUserPoolClient",
-      "cognito-idp:DescribeUserPoolClient",
       "cognito-idp:UpdateUserPoolClient",
       "cognito-idp:CreateIdentityProvider",
       "cognito-idp:DeleteIdentityProvider",
-      "cognito-idp:DescribeIdentityProvider",
       "cognito-idp:UpdateIdentityProvider",
-      "cognito-idp:ListUserPools",
-      "cognito-idp:ListUserPoolClients",
-      "cognito-idp:ListIdentityProviders",
       "cognito-idp:TagResource",
       "cognito-idp:UntagResource",
-      "cognito-idp:ListTagsForResource",
     ]
     resources = ["*"]
   }

@@ -239,15 +239,13 @@ resource "aws_cognito_identity_provider" "google" {
   provider_type = "Google"
 
   provider_details = {
-    client_id                     = var.google_client_id
-    client_secret                 = var.google_client_secret
-    authorize_scopes              = "email openid profile"
-    attributes_url                = "https://people.googleapis.com/v1/people/me?personFields="
-    attributes_url_key            = "personFields"
-    authorize_url                 = "https://accounts.google.com/o/oauth2/v2/auth"
-    oidc_issuer                   = "https://accounts.google.com"
-    token_request_method          = "POST"
-    token_url                     = "https://oauth2.googleapis.com/token"
+    client_id            = var.google_client_id
+    client_secret        = var.google_client_secret
+    authorize_scopes     = "email openid profile"
+    authorize_url        = "https://accounts.google.com/o/oauth2/v2/auth"
+    oidc_issuer          = "https://accounts.google.com"
+    token_request_method = "POST"
+    token_url            = "https://oauth2.googleapis.com/token"
   }
 
   attribute_mapping = {
