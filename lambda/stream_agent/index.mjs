@@ -10,7 +10,7 @@ import {
   InvokeModelWithResponseStreamCommand,
   InvokeModelCommand,
 } from '@aws-sdk/client-bedrock-runtime';
-import { CognitoJwtVerifier } from '@aws/aws-jwt-verify';
+import { CognitoJwtVerifier } from 'aws-jwt-verify';
 
 const REGION       = process.env.REGION            ?? 'us-east-1';
 const TABLE_NAME   = process.env.DYNAMODB_TABLE;

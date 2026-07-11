@@ -3,6 +3,6 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "@aws/aws-jwt-verify": "^4.0.0"
+    "aws-jwt-verify": "^4.0.0"
   }
 }
