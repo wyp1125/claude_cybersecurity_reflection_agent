@@ -49,6 +49,15 @@ export async function invokeAgentStreaming(streamUrl, idToken, inputText, callba
     throw new Error(`HTTP ${resp.status}`)
   }
 
+  // Guard: CloudFront may serve index.html (text/html) instead of SSE when
+  // the Lambda origin returns a 4xx and a custom_error_response is configured.
+  const ct = resp.headers.get('content-type') ?? ''
+  if (!ct.includes('text/event-stream') && !ct.includes('application/json')) {
+    // Drain a bit to surface a useful diagnostic
+    const preview = await resp.text().then(t => t.slice(0, 120))
+    throw new Error(`Expected SSE stream but got ${ct || 'unknown content-type'}. Body: ${preview}`)
+  }
+
   const reader  = resp.body.getReader()
   const decoder = new TextDecoder()
   let buffer    = ''

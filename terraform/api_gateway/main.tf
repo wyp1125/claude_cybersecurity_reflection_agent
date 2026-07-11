@@ -406,12 +406,15 @@ resource "aws_lambda_function_url" "stream_agent" {
 }
 
 # Allow CloudFront (and only this distribution) to invoke the Function URL.
+# function_url_auth_type is required for Lambda Function URL resource policies —
+# without it the IAM auth check fails even when the OAC signature is valid.
 resource "aws_lambda_permission" "stream_cloudfront" {
-  statement_id  = "AllowCloudFrontInvoke"
-  action        = "lambda:InvokeFunctionUrl"
-  function_name = aws_lambda_function.stream_agent.function_name
-  principal     = "cloudfront.amazonaws.com"
-  source_arn    = aws_cloudfront_distribution.chatbot.arn
+  statement_id           = "AllowCloudFrontInvoke"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.stream_agent.function_name
+  principal              = "cloudfront.amazonaws.com"
+  source_arn             = aws_cloudfront_distribution.chatbot.arn
+  function_url_auth_type = "AWS_IAM"
 }
 
 # ── S3 bucket for chatbot static files ───────────────────────────────────────
@@ -509,13 +512,10 @@ resource "aws_cloudfront_distribution" "chatbot" {
     max_ttl     = 86400
   }
 
-  # Route unknown S3 paths to index.html for React SPA routing
-  custom_error_response {
-    error_code         = 403
-    response_code      = 200
-    response_page_path = "/index.html"
-  }
-
+  # Route unknown S3 paths to index.html for React SPA routing.
+  # Only 404 is needed: CloudFront OAC is authorised on the bucket, so S3
+  # returns 404 (not 403) for missing objects. We do NOT mask 403 here because
+  # that would swallow Lambda auth errors on the /stream behaviour.
   custom_error_response {
     error_code         = 404
     response_code      = 200

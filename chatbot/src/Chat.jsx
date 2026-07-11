@@ -92,6 +92,7 @@ export default function Chat({ config, token, onLogout }) {
       setRoundStatus(null)
     } finally {
       setLoading(false)
+      setRoundStatus(null)
     }
   }
 
