@@ -443,6 +443,7 @@ resource "aws_lambda_permission" "cognito_invoke_url" {
 resource "aws_cognito_identity_pool" "main" {
   identity_pool_name               = "${local.project_name}-identity-pool"
   allow_unauthenticated_identities = false
+  allow_classic_flow               = true
 
   cognito_identity_providers {
     client_id               = aws_cognito_user_pool_client.main.id
