@@ -11,27 +11,15 @@ TABLE_NAME = os.environ["DYNAMODB_TABLE"]
 
 
 def handler(event, context):
-    """Cognito pre-signup trigger: allow only emails pre-registered in DynamoDB."""
+    """Cognito pre-signup trigger: auto-confirm all Google sign-ins.
+    Per-user quota is enforced by the streaming Lambda via DynamoDB."""
     email = (
         event.get("request", {})
         .get("userAttributes", {})
         .get("email", "")
     )
-    logger.info("Pre-signup check for email=%s", email)
+    logger.info("Pre-signup for email=%s", email)
 
-    if not email:
-        raise Exception("Access denied: no email in request")
-
-    table = dynamodb.Table(TABLE_NAME)
-    item = table.get_item(Key={"email": email}).get("Item")
-
-    if item is None:
-        logger.warning("Rejected sign-up for unregistered email=%s", email)
-        raise Exception(f"Access denied: {email} is not authorized")
-
-    # Auto-confirm so the user doesn't need a separate email verification step
     event["response"]["autoConfirmUser"] = True
     event["response"]["autoVerifyEmail"] = True
-
-    logger.info("Allowed sign-up for email=%s", email)
     return event

@@ -94,11 +94,6 @@ resource "aws_iam_role_policy" "pre_signup_lambda" {
         Effect   = "Allow"
         Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
         Resource = "arn:aws:logs:${local.region}:${local.account_id}:*"
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["dynamodb:GetItem"]
-        Resource = aws_dynamodb_table.user_access.arn
       }
     ]
   })
@@ -113,11 +108,6 @@ resource "aws_lambda_function" "pre_signup" {
   source_code_hash = data.archive_file.pre_signup.output_base64sha256
   timeout          = 10
 
-  environment {
-    variables = {
-      DYNAMODB_TABLE = aws_dynamodb_table.user_access.name
-    }
-  }
 }
 
 resource "aws_lambda_permission" "cognito_pre_signup" {
