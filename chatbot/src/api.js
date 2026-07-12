@@ -53,13 +53,15 @@ export async function invokeAgentStreaming(streamUrl, idToken, inputText, callba
 
   let resp
   if (config?.identityPoolId) {
-    // Sign the request with temporary IAM credentials from Cognito Identity Pool
+    console.log('[stream] getting Cognito Identity credentials...')
     const aws = await getSignedClient(config, idToken)
+    console.log('[stream] credentials obtained, sending signed request to', streamUrl)
     resp = await aws.fetch(streamUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
     })
+    console.log('[stream] response status:', resp.status)
   } else {
     resp = await fetch(streamUrl, {
       method: 'POST',
@@ -68,8 +70,13 @@ export async function invokeAgentStreaming(streamUrl, idToken, inputText, callba
     })
   }
 
-  if (!resp.ok || !resp.body) {
-    throw new Error(`HTTP ${resp.status}`)
+  if (!resp.ok) {
+    const errType = resp.headers.get('x-amzn-ErrorType') ?? ''
+    const body = await resp.text().catch(() => '')
+    throw new Error(`HTTP ${resp.status}${errType ? ' ' + errType : ''}${body ? ': ' + body.slice(0, 120) : ''}`)
+  }
+  if (!resp.body) {
+    throw new Error(`HTTP ${resp.status}: no response body`)
   }
 
   const ct = resp.headers.get('content-type') ?? ''
