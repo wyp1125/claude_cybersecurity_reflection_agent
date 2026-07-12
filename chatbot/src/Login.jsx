@@ -9,8 +9,20 @@ export default function Login({ config }) {
         <div style={s.shield}>🛡️</div>
         <h1 style={s.title}>NIST 800-53 Assistant</h1>
         <p style={s.subtitle}>
-          Map cybersecurity issues to NIST 800-53 controls using AI-powered analysis.
+          Describe a cybersecurity issue and get an AI-powered mapping to the most
+          relevant NIST 800-53 security and privacy controls — complete with control
+          IDs, names, and explanations. The assistant uses a reflection loop to
+          iteratively refine its analysis until the mapping reaches a high-quality score.
         </p>
+
+        <div style={s.demoBanner}>
+          <span style={s.demoIcon}>⚡</span>
+          <span>
+            <strong>Demo access:</strong> new Google accounts get{' '}
+            <strong>2 free calls</strong> after sign-in.
+          </span>
+        </div>
+
         <button style={s.googleBtn} onClick={() => startLogin(config)}>
           <GoogleIcon />
           Sign in with Google
@@ -64,6 +76,24 @@ const styles = {
     color: '#64748b',
     lineHeight: 1.6,
     marginBottom: 32,
+  },
+  demoBanner: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+    background: '#f0f9ff',
+    border: '1px solid #bae6fd',
+    borderRadius: 8,
+    padding: '10px 14px',
+    marginBottom: 24,
+    fontSize: 13,
+    color: '#0369a1',
+    textAlign: 'left',
+    lineHeight: 1.5,
+  },
+  demoIcon: {
+    flexShrink: 0,
+    marginTop: 1,
   },
   googleBtn: {
     display: 'flex',

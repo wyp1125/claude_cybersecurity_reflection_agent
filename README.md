@@ -1,48 +1,87 @@
-# claude_cybersecurity_reflection_agent
+# NIST 800-53 Cybersecurity Assistant
 
-A cybersecurity assistant that maps cybersecurity issues to NIST 800-53 security and privacy controls using Claude Haiku 4.5. Two deployment targets are provided: a simple Amazon Bedrock Agent and a Strands-based reflection agent deployed to AgentCore.
+A web-based chatbot that maps cybersecurity issues to NIST 800-53 security and privacy controls using Claude Haiku 4.5. The assistant uses a **reflection loop** — a generator–evaluator pattern that iteratively refines its analysis until the mapping reaches a quality score of 4/5 or higher (up to 5 rounds).
+
+## Live Chatbot
+
+**Sign in with Google → describe a cybersecurity issue → get a scored NIST 800-53 mapping.**
+
+New Google accounts receive **2 free demo calls** automatically. No pre-registration required.
+
+### How it works
+
+1. You describe a cybersecurity issue (e.g. *"SQL injection on our login endpoint"*)
+2. The **Generator** (Claude Haiku 4.5 via Bedrock) produces a NIST 800-53 control mapping — control IDs, names, and explanations
+3. The **Evaluator** (same model, separate prompt) scores the mapping 1–5 and gives specific feedback
+4. If the score is below 4, the feedback is passed back to the Generator for a revised mapping
+5. The loop repeats up to **5 rounds**, stopping early once score ≥ 4
+6. The final mapping, score, and round count are shown in the chat
+
+Responses stream token-by-token in real time.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  Bedrock Agent (simple)                                         │
-│                                                                 │
-│  GitHub Actions → Terraform → Amazon Bedrock Agent             │
-│                                    ↓                           │
-│                       invoke_agents/invoke_bedrock_agent.py    │
-└─────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────┐
-│  Strands Agent with reflection loop (AgentCore)                 │
-│                                                                 │
-│  GitHub Actions → ECR (arm64 image) → AgentCore Runtime        │
-│                                           ↓                    │
-│                    ┌──────────────────────────────────────┐    │
-│                    │  Reflection Loop (max 5 rounds)       │    │
-│                    │  Generator → NIST 800-53 mapping      │    │
-│                    │  Evaluator → score 1-5 + feedback     │    │
-│                    │  Loop until score ≥ 4                 │    │
-│                    └──────────────────────────────────────┘    │
-│                                           ↓                    │
-│                       invoke_agents/invoke_strands_agent.py    │
-└─────────────────────────────────────────────────────────────────┘
+Browser (React + Vite)
+  └── Google Sign-In → Cognito User Pool (OAuth 2.0)
+        └── Cognito Identity Pool → STS AssumeRoleWithWebIdentity
+              └── SigV4-signed POST → Lambda Function URL (AuthType = AWS_IAM)
+                    └── stream_agent Lambda (Node.js 22, RESPONSE_STREAM)
+                          ├── Verify Cognito JWT
+                          ├── DynamoDB quota check / auto-provision demo calls
+                          └── Bedrock reflection loop → SSE stream → browser
 ```
 
-## Prerequisites
+**Infrastructure is fully managed via Terraform + GitHub Actions CI/CD.**
 
-| Requirement | Notes |
-|---|---|
-| AWS account | With Bedrock model access for `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
-| S3 bucket | `bdx-agentic-ai` — stores Terraform state for both agents |
-| GitHub OIDC | OIDC provider `token.actions.githubusercontent.com` registered in AWS account |
-| GitHub variable | `AWS_ROLE_ARN` set under **Settings → Secrets and variables → Actions → Variables** |
+```
+push to main
+  └── GitHub Actions (deploy_api_gateway.yml)
+        ├── terraform apply  (Cognito, Lambda, CloudFront, DynamoDB, IAM)
+        ├── npm run build    (React chatbot)
+        └── aws s3 sync + CloudFront invalidation
+```
+
+## Project Structure
+
+```
+├── chatbot/                        # React + Vite frontend
+│   ├── src/
+│   │   ├── App.jsx                 # Auth flow, config loading, routing
+│   │   ├── Login.jsx               # Sign-in page with demo info
+│   │   ├── Chat.jsx                # Chat UI with streaming + round status
+│   │   ├── api.js                  # SigV4 signing, Cognito basic flow, SSE parsing
+│   │   └── auth.js                 # Cognito hosted UI login/logout/callback
+│   └── package.json
+│
+├── lambda/
+│   ├── stream_agent/
+│   │   └── index.mjs               # Reflection loop: JWT auth, quota, Bedrock streaming
+│   └── pre_signup/
+│       └── handler.py              # Cognito pre-signup trigger: auto-confirm all Google sign-ins
+│
+├── terraform/
+│   ├── bootstrap/
+│   │   └── main.tf                 # One-time: GitHub Actions OIDC IAM role
+│   └── api_gateway/
+│       └── main.tf                 # All chatbot infra: Cognito, Lambda, CloudFront, DynamoDB, IAM
+│
+└── .github/workflows/
+    └── deploy_api_gateway.yml      # CI/CD: terraform apply → build → S3 deploy → CloudFront invalidation
+```
 
 ## Setup
 
-### 1. Deploy the bootstrap IAM role (one-time, manual)
+### Prerequisites
 
-Creates the GitHub Actions OIDC role with permissions for ECR, IAM, Bedrock, and AgentCore:
+| Requirement | Notes |
+|---|---|
+| AWS account | Bedrock model access for `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
+| S3 bucket | `bdx-agentic-ai` — stores Terraform remote state |
+| GitHub OIDC | `token.actions.githubusercontent.com` registered in your AWS account |
+| Google OAuth | Google Cloud project with OAuth 2.0 client ID and secret |
+
+### 1. Bootstrap IAM role (one-time, manual)
 
 ```bash
 cd terraform/bootstrap
@@ -52,91 +91,85 @@ terraform apply
 
 Set the output as a GitHub Actions repository variable:
 
-**Settings → Secrets and variables → Actions → Variables → New repository variable**
+**Settings → Secrets and variables → Actions → Variables**
 
 | Name | Value |
 |---|---|
-| `AWS_ROLE_ARN` | `arn:aws:iam::925680695682:role/github_actions_claude_cybersecurity_reflection_agent_role` |
+| `AWS_ROLE_ARN` | output of `terraform output github_actions_role_arn` |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID |
+
+**Settings → Secrets and variables → Actions → Secrets**
+
+| Name | Value |
+|---|---|
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
 
 ### 2. Deploy via CI/CD
 
-Each agent has its own workflow triggered by changes to its relevant paths:
+Push to `main` (or any change under `lambda/**`, `terraform/api_gateway/**`, `chatbot/**`):
 
-| Workflow | Trigger paths | What it does |
-|---|---|---|
-| `deploy_bedrock_agent.yml` | `terraform/bedrock_agent/**` | `terraform apply` — provisions the Bedrock Agent |
-| `deploy_strands_agent.yml` | `strands_agent/**`, `terraform/agentcore/**`, `.github/workflows/deploy_strands_agent.yml` | Terraform (ECR + IAM) → build & push arm64 Docker image → create/update AgentCore runtime via AWS CLI |
+```
+GitHub Actions → terraform apply → npm run build → s3 sync → CloudFront invalidation
+```
 
-Both workflows run `terraform plan` on PRs and apply on push to `main`.
+PRs run `terraform plan` only (no apply).
 
-## Invoking the agents locally
+### 3. Enable Bedrock model access
 
-Requires AWS credentials configured in your environment (`~/.aws/credentials` or environment variables). Both scripts auto-discover resource IDs/ARNs by name — no manual configuration needed.
+Enable `us.anthropic.claude-haiku-4-5-20251001-v1:0` (cross-region inference profile) in the [Bedrock console](https://console.aws.amazon.com/bedrock/home#/modelaccess) before deploying.
 
-### Bedrock Agent
+## Demo Quota
+
+User quotas are tracked in DynamoDB. New users are **auto-provisioned** on their first API call — no pre-registration needed. The quota field uses `calls_remaining`:
+
+| Value | Meaning |
+|---|---|
+| `2`, `1`, `0` | Demo user, calls remaining |
+| `-1` | Unlimited (manually granted) |
+
+To grant unlimited access to a user:
+
+```bash
+aws dynamodb update-item \
+  --table-name <table-name> \
+  --key '{"email": {"S": "user@example.com"}}' \
+  --update-expression 'SET calls_remaining = :u' \
+  --expression-attribute-values '{":u": {"N": "-1"}}'
+```
+
+## Key Implementation Notes
+
+- **Lambda Function URLs + AWS_IAM**: requires **both** `lambda:InvokeFunctionUrl` AND `lambda:InvokeFunction` in the caller's policy. The IAM simulator only checks `InvokeFunctionUrl` and falsely reports ALLOW.
+- **Cognito basic flow**: uses `GetOpenIdToken` + `STS.AssumeRoleWithWebIdentity` instead of the enhanced flow (`GetCredentialsForIdentity`). The enhanced flow injects a Cognito-managed session policy that silently blocks Lambda invocations at runtime. Requires `allow_classic_flow = true` on the Identity Pool.
+- **SigV4 signing**: browser-side request signing uses `@smithy/signature-v4` + `@aws-crypto/sha256-browser` (same engine as AWS SDK v3) to avoid `InvalidSignatureException` with Lambda Function URLs.
+- **Streaming**: Lambda uses `awslambda.streamifyResponse` with `invoke_mode = RESPONSE_STREAM`. The browser reads the SSE stream incrementally via the Fetch API `ReadableStream`.
+
+---
+
+## Earlier Experiments (reference only)
+
+The repo also contains two earlier proof-of-concept deployments that are **not used by the chatbot**:
+
+### Bedrock Agent (simple)
+
+A basic Amazon Bedrock Agent with no reflection loop. Invoked locally via:
 
 ```bash
 pip install boto3
 python invoke_agents/invoke_bedrock_agent.py
 ```
 
-```
-Describe your cybersecurity issue: SQL injection in our login endpoint
-AC-3: Access Enforcement — ...
-SI-10: Information Input Validation — ...
-```
+Deployed by `.github/workflows/deploy_bedrock_agent.yml` → `terraform/bedrock_agent/`.
 
-### Strands Agent (reflection loop)
+### Strands Agent on AgentCore
+
+A Strands-based reflection agent packaged as an arm64 Docker image and deployed to Amazon AgentCore Runtime. Invoked locally via:
 
 ```bash
 pip install boto3
 python invoke_agents/invoke_strands_agent.py
 ```
 
-```
-Describe your cybersecurity issue: an employee lost the company laptop
---- NIST 800-53 Mapping ---
-...
-Score: 4/5  |  Rounds: 2
-```
+Deployed by `.github/workflows/deploy_strands_agent.yml` → `terraform/agentcore/`.
 
-## Project structure
-
-```
-├── invoke_agents/
-│   ├── invoke_bedrock_agent.py    # Local client for the Bedrock Agent
-│   └── invoke_strands_agent.py    # Local client for the AgentCore runtime
-├── strands_agent/
-│   ├── agent.py                   # Strands agent with generator/evaluator reflection loop
-│   ├── Dockerfile                 # arm64 container image
-│   └── requirements.txt
-├── terraform/
-│   ├── bootstrap/
-│   │   └── main.tf                # One-time: GitHub Actions OIDC IAM role
-│   ├── bedrock_agent/
-│   │   └── main.tf                # Bedrock Agent + IAM role (S3 state: terraform/bedrock-agent/)
-│   └── agentcore/
-│       └── main.tf                # ECR repository + AgentCore IAM role (S3 state: terraform/agentcore/)
-└── .github/workflows/
-    ├── deploy_bedrock_agent.yml   # Bedrock Agent CI/CD
-    └── deploy_strands_agent.yml   # Strands Agent CI/CD (build + AgentCore deploy)
-```
-
-## Reflection loop
-
-The Strands agent uses a generator–evaluator pattern to iteratively improve NIST 800-53 mappings:
-
-1. **Generator** maps the cybersecurity issue to relevant NIST 800-53 controls
-2. **Evaluator** scores the mapping 1–5 on relevance and correctness and provides specific feedback
-3. If score < 4, the feedback is passed back to the generator for a revised mapping
-4. The loop repeats up to **5 rounds**, stopping early when score ≥ 4
-
-The response includes the final mapping, the score, and the number of rounds taken.
-
-## Notes
-
-- **Model access**: Enable `us.anthropic.claude-haiku-4-5-20251001-v1:0` (cross-region inference profile) in the [Bedrock console](https://console.aws.amazon.com/bedrock/home#/modelaccess) before deploying.
-- **Bootstrap state**: `terraform/bootstrap/` uses local Terraform state (excluded from version control). Run it once manually before any CI/CD workflows.
-- **AgentCore requires arm64**: The Docker image is built with `--platform linux/arm64` via QEMU emulation on the GitHub Actions runner.
-- **AgentCore runtime name**: The runtime name uses underscores (`cybersecurity_reflection_agent`) since AgentCore does not allow hyphens in runtime names.
-- **Bedrock Agent alias**: Invoked via the built-in `TSTALIASID` alias (always points to the DRAFT version). No custom alias resource is needed.
+> These are standalone scripts. The live chatbot does not call either of them.
