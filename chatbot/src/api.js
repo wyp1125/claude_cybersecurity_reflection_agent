@@ -1,4 +1,5 @@
-import { CognitoIdentityClient, GetIdCommand, GetCredentialsForIdentityCommand } from '@aws-sdk/client-cognito-identity'
+import { CognitoIdentityClient, GetIdCommand, GetOpenIdTokenCommand } from '@aws-sdk/client-cognito-identity'
+import { STSClient, AssumeRoleWithWebIdentityCommand } from '@aws-sdk/client-sts'
 import { SignatureV4 } from '@smithy/signature-v4'
 import { Sha256 } from '@aws-crypto/sha256-browser'
 
@@ -25,15 +26,27 @@ async function getCognitoCredentials(config, idToken) {
     Logins: { [providerKey]: idToken },
   }))
 
-  const { Credentials } = await identity.send(new GetCredentialsForIdentityCommand({
+  // Basic flow: GetOpenIdToken → AssumeRoleWithWebIdentity.
+  // The enhanced flow (GetCredentialsForIdentity) injects a Cognito-managed
+  // session policy that silently blocks lambda:InvokeFunctionUrl at runtime
+  // even though the role policy and IAM simulator both show ALLOW.
+  const { Token } = await identity.send(new GetOpenIdTokenCommand({
     IdentityId,
     Logins: { [providerKey]: idToken },
+  }))
+
+  const sts = new STSClient({ region: config.region })
+  const { Credentials } = await sts.send(new AssumeRoleWithWebIdentityCommand({
+    RoleArn:          config.cognitoRoleArn,
+    RoleSessionName:  'ChatSession',
+    WebIdentityToken: Token,
+    DurationSeconds:  3600,
   }))
 
   _credExpiry = new Date(Credentials.Expiration).getTime()
   _creds = {
     accessKeyId:     Credentials.AccessKeyId,
-    secretAccessKey: Credentials.SecretKey,
+    secretAccessKey: Credentials.SecretAccessKey,
     sessionToken:    Credentials.SessionToken,
   }
   return _creds

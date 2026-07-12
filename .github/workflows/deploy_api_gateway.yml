@@ -109,6 +109,7 @@ jobs:
           echo "region=$(terraform output -raw region)"                        >> $GITHUB_OUTPUT
           echo "api_url=$(terraform output -raw api_url)"                      >> $GITHUB_OUTPUT
           echo "stream_url=$(terraform output -raw stream_url)"                >> $GITHUB_OUTPUT
+          echo "cognito_role_arn=$(terraform output -raw cognito_role_arn)"   >> $GITHUB_OUTPUT
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -132,6 +133,7 @@ jobs:
             "clientId": "${{ steps.tf.outputs.client_id }}",
             "userPoolId": "${{ steps.tf.outputs.user_pool_id }}",
             "identityPoolId": "${{ steps.tf.outputs.identity_pool_id }}",
+            "cognitoRoleArn": "${{ steps.tf.outputs.cognito_role_arn }}",
             "region": "${{ steps.tf.outputs.region }}",
             "apiUrl": "${{ steps.tf.outputs.api_url }}",
             "streamUrl": "${{ steps.tf.outputs.stream_url }}",

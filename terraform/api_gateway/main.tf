@@ -639,6 +639,11 @@ output "identity_pool_id" {
   value       = aws_cognito_identity_pool.main.id
 }
 
+output "cognito_role_arn" {
+  description = "IAM role ARN the browser assumes via basic Cognito flow to sign Lambda Function URL requests"
+  value       = aws_iam_role.cognito_authenticated.arn
+}
+
 output "region" {
   value = local.region
 }
