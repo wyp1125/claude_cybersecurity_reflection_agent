@@ -420,7 +420,8 @@ resource "aws_lambda_function_url" "stream_agent" {
       "x-amz-date",
       "x-amz-security-token",
     ]
-    max_age = 300
+    expose_headers = ["x-amzn-errortype", "x-amzn-requestid"]
+    max_age        = 300
   }
 }
 

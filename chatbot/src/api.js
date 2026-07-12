@@ -1,5 +1,6 @@
 import { CognitoIdentityClient, GetIdCommand, GetCredentialsForIdentityCommand } from '@aws-sdk/client-cognito-identity'
-import { AwsClient } from 'aws4fetch'
+import { SignatureV4 } from '@smithy/signature-v4'
+import { Sha256 } from '@aws-crypto/sha256-browser'
 
 export class QuotaError extends Error {
   constructor(message) {
@@ -9,18 +10,12 @@ export class QuotaError extends Error {
 }
 
 // ── Cognito Identity credential cache ─────────────────────────────────────────
-// Browser exchanges its Cognito ID token for temporary IAM credentials so it
-// can SigV4-sign requests directly to the Lambda Function URL. CloudFront OAC
-// is NOT used (it signs host:<domain>:443 but Lambda verifies host:<domain>).
 
-let _awsClient = null
+let _creds = null
 let _credExpiry = 0
 
-async function getSignedClient(config, idToken) {
-  // Reuse cached client if credentials don't expire within 5 minutes
-  if (_awsClient && Date.now() < _credExpiry - 5 * 60 * 1000) {
-    return _awsClient
-  }
+async function getCognitoCredentials(config, idToken) {
+  if (_creds && Date.now() < _credExpiry - 5 * 60 * 1000) return _creds
 
   const identity = new CognitoIdentityClient({ region: config.region })
   const providerKey = `cognito-idp.${config.region}.amazonaws.com/${config.userPoolId}`
@@ -36,14 +31,46 @@ async function getSignedClient(config, idToken) {
   }))
 
   _credExpiry = new Date(Credentials.Expiration).getTime()
-  _awsClient = new AwsClient({
+  _creds = {
     accessKeyId:     Credentials.AccessKeyId,
     secretAccessKey: Credentials.SecretKey,
     sessionToken:    Credentials.SessionToken,
-    region:          config.region,
-    service:         'lambda',
+  }
+  return _creds
+}
+
+// ── SigV4-signed fetch using @smithy/signature-v4 ────────────────────────────
+// Uses the same signing engine as the AWS SDK v3, avoiding subtle differences
+// in body-hash computation that can cause InvalidSignatureException with Lambda
+// Function URLs (AuthType = AWS_IAM).
+
+async function signedFetch(url, body, creds, region) {
+  const { hostname, pathname } = new URL(url)
+
+  const signer = new SignatureV4({
+    credentials: creds,
+    region,
+    service: 'lambda',
+    sha256: Sha256,
   })
-  return _awsClient
+
+  const signed = await signer.sign({
+    method:   'POST',
+    protocol: 'https:',
+    hostname,
+    path:     pathname || '/',
+    headers: {
+      'content-type': 'application/json',
+      host:            hostname,
+    },
+    body,
+  })
+
+  // Browsers forbid setting the 'host' header; strip it — the browser sends
+  // the correct value automatically for the URL we're fetching.
+  const { host: _host, ...fetchHeaders } = signed.headers
+
+  return fetch(url, { method: 'POST', headers: fetchHeaders, body })
 }
 
 // ── Streaming agent invocation ────────────────────────────────────────────────
@@ -54,13 +81,9 @@ export async function invokeAgentStreaming(streamUrl, idToken, inputText, callba
   let resp
   if (config?.identityPoolId) {
     console.log('[stream] getting Cognito Identity credentials...')
-    const aws = await getSignedClient(config, idToken)
+    const creds = await getCognitoCredentials(config, idToken)
     console.log('[stream] credentials obtained, sending signed request to', streamUrl)
-    resp = await aws.fetch(streamUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    })
+    resp = await signedFetch(streamUrl, body, creds, config.region)
     console.log('[stream] response status:', resp.status)
   } else {
     resp = await fetch(streamUrl, {
@@ -72,8 +95,8 @@ export async function invokeAgentStreaming(streamUrl, idToken, inputText, callba
 
   if (!resp.ok) {
     const errType = resp.headers.get('x-amzn-ErrorType') ?? ''
-    const body = await resp.text().catch(() => '')
-    throw new Error(`HTTP ${resp.status}${errType ? ' ' + errType : ''}${body ? ': ' + body.slice(0, 120) : ''}`)
+    const errBody = await resp.text().catch(() => '')
+    throw new Error(`HTTP ${resp.status}${errType ? ' ' + errType : ''}${errBody ? ': ' + errBody.slice(0, 200) : ''}`)
   }
   if (!resp.body) {
     throw new Error(`HTTP ${resp.status}: no response body`)
