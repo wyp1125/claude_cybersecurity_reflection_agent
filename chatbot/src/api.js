@@ -39,10 +39,13 @@ export async function invokeAgent(apiUrl, idToken, inputText) {
  * @param {object}   callbacks - { onRoundStart, onToken, onRoundEnd, onDone, onError }
  */
 export async function invokeAgentStreaming(streamUrl, idToken, inputText, callbacks = {}) {
+  // Token is in the body (not a header) so CloudFront OAC only signs the
+  // body hash — custom headers in the signed set cause InvalidSignatureException
+  // when CloudFront normalises them in-flight.
   const resp = await fetch(streamUrl, {
     method: 'POST',
-    headers: { 'X-User-Token': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ inputText }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ inputText, token: `Bearer ${idToken}` }),
   })
 
   if (!resp.ok || !resp.body) {

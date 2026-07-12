@@ -142,28 +142,35 @@ export const handler = awslambda.streamifyResponse(async (event, responseStream)
   });
 
   try {
-    // ── Auth ──────────────────────────────────────────────────────────────────
-    // CloudFront OAC overwrites Authorization with SigV4; JWT is forwarded in X-User-Token.
-    const authHeader = event.headers?.['x-user-token'] ?? '';
-    const token = authHeader.replace(/^Bearer\s+/i, '');
-    let claims;
-    try {
-      claims = await verifier.verify(token);
-    } catch {
-      httpStream.write(sse({ type: 'error', message: 'Unauthorized', code: 'UNAUTHORIZED' }));
-      return;
-    }
-
-    // ── Parse body ────────────────────────────────────────────────────────────
+    // ── Parse body first (token lives in the body to avoid OAC signing issues) ─
+    // CloudFront OAC signs every forwarded header; any in-flight normalisation
+    // of a custom header (X-User-Token) causes InvalidSignatureException.
+    // Putting the JWT in the POST body keeps the signed-header set minimal.
     let inputText = '';
+    let token = '';
     try {
-      inputText = (JSON.parse(event.body ?? '{}').inputText ?? '').trim();
+      const parsed = JSON.parse(event.body ?? '{}');
+      inputText = (parsed.inputText ?? '').trim();
+      token = (parsed.token ?? '').replace(/^Bearer\s+/i, '');
     } catch {
       httpStream.write(sse({ type: 'error', message: 'Invalid request body' }));
       return;
     }
     if (!inputText) {
       httpStream.write(sse({ type: 'error', message: 'inputText is required' }));
+      return;
+    }
+    if (!token) {
+      httpStream.write(sse({ type: 'error', message: 'Unauthorized', code: 'UNAUTHORIZED' }));
+      return;
+    }
+
+    // ── Auth ──────────────────────────────────────────────────────────────────
+    let claims;
+    try {
+      claims = await verifier.verify(token);
+    } catch {
+      httpStream.write(sse({ type: 'error', message: 'Unauthorized', code: 'UNAUTHORIZED' }));
       return;
     }
 

@@ -449,29 +449,6 @@ resource "aws_cloudfront_origin_access_control" "stream_lambda" {
   signing_protocol                  = "sigv4"
 }
 
-# Custom origin request policy for the Lambda stream origin.
-# Forwards only X-User-Token (JWT) and Content-Type — nothing else.
-# Using AllViewerExceptHostHeader signs all viewer headers with OAC, which
-# causes InvalidSignatureException when CloudFront normalises any of them.
-resource "aws_cloudfront_origin_request_policy" "stream_lambda" {
-  name = "${local.project_name}-stream-lambda"
-
-  headers_config {
-    header_behavior = "whitelist"
-    headers {
-      items = ["X-User-Token", "Content-Type"]
-    }
-  }
-
-  cookies_config {
-    cookie_behavior = "none"
-  }
-
-  query_strings_config {
-    query_string_behavior = "none"
-  }
-}
-
 resource "aws_cloudfront_distribution" "chatbot" {
   enabled             = true
   default_root_object = "index.html"
@@ -514,11 +491,11 @@ resource "aws_cloudfront_distribution" "chatbot" {
 
     # CachingDisabled (AWS managed policy)
     cache_policy_id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
-    # Custom policy: forward only X-User-Token and Content-Type.
-    # AllViewerExceptHostHeader causes OAC InvalidSignatureException because it
-    # makes CloudFront sign all viewer headers, and any in-flight modification
-    # (e.g. Accept-Encoding normalisation) breaks the Lambda signature check.
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.stream_lambda.id
+    # No origin request policy: OAC signs only host, x-amz-date, and
+    # x-amz-content-sha256 (the body hash). Any custom header in the signed set
+    # (X-User-Token, Content-Type) triggers InvalidSignatureException because
+    # CloudFront may normalise them before forwarding. The JWT is instead sent
+    # inside the JSON body, which is covered by x-amz-content-sha256.
   }
 
   # ── Default → S3 (static files) ───────────────────────────────────────────────
