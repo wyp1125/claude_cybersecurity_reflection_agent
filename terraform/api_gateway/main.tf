@@ -430,11 +430,10 @@ resource "aws_lambda_function_url" "stream_agent" {
 # policy on the caller's role AND a resource-based policy on the function itself.
 # The identity-based policy alone is insufficient for federated (Cognito) callers.
 resource "aws_lambda_permission" "cognito_invoke_url" {
-  statement_id           = "AllowCognitoInvokeFunctionUrl"
-  action                 = "lambda:InvokeFunctionUrl"
-  function_name          = aws_lambda_function.stream_agent.function_name
-  principal              = aws_iam_role.cognito_authenticated.arn
-  function_url_auth_type = "AWS_IAM"
+  statement_id  = "AllowAccountInvokeFunctionUrl"
+  action        = "lambda:InvokeFunctionUrl"
+  function_name = aws_lambda_function.stream_agent.function_name
+  principal     = local.account_id
 }
 
 # ── Cognito Identity Pool (browser SigV4 signing for Lambda Function URL) ────
