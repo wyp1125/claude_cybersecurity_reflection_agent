@@ -1,13 +1,7 @@
 import logging
-import os
-
-import boto3
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-dynamodb = boto3.resource("dynamodb")
-TABLE_NAME = os.environ["DYNAMODB_TABLE"]
 
 
 def handler(event, context):
