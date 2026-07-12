@@ -310,6 +310,18 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       "cloudfront:ListOriginAccessControls",
       "cloudfront:CreateInvalidation",
       "cloudfront:GetInvalidation",
+      "cloudfront:CreateOriginRequestPolicy",
+      "cloudfront:DeleteOriginRequestPolicy",
+      "cloudfront:GetOriginRequestPolicy",
+      "cloudfront:GetOriginRequestPolicyConfig",
+      "cloudfront:UpdateOriginRequestPolicy",
+      "cloudfront:ListOriginRequestPolicies",
+      "cloudfront:CreateCachePolicy",
+      "cloudfront:DeleteCachePolicy",
+      "cloudfront:GetCachePolicy",
+      "cloudfront:GetCachePolicyConfig",
+      "cloudfront:UpdateCachePolicy",
+      "cloudfront:ListCachePolicies",
     ]
     resources = ["*"]
   }
