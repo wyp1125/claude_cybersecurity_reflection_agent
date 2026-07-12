@@ -350,6 +350,24 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
     resources = ["*"]
   }
+
+  # Cognito Identity — identity pools for browser-side SigV4 signing
+  statement {
+    sid    = "CognitoIdentity"
+    effect = "Allow"
+    actions = [
+      "cognito-identity:CreateIdentityPool",
+      "cognito-identity:DeleteIdentityPool",
+      "cognito-identity:DescribeIdentityPool",
+      "cognito-identity:GetIdentityPoolRoles",
+      "cognito-identity:SetIdentityPoolRoles",
+      "cognito-identity:UpdateIdentityPool",
+      "cognito-identity:TagResource",
+      "cognito-identity:UntagResource",
+      "cognito-identity:ListIdentityPools",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "github_actions" {

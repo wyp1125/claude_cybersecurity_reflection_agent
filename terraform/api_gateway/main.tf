@@ -396,25 +396,90 @@ resource "aws_lambda_function" "stream_agent" {
   }
 }
 
-# Lambda Function URL — AWS_IAM auth so only CloudFront OAC can invoke it directly.
-# The public stream endpoint is https://<cloudfront>/stream, which CloudFront
-# SigV4-signs before forwarding here. No public access or CORS needed.
+# Lambda Function URL — AWS_IAM auth. CloudFront OAC is NOT used here because
+# OAC with custom_origin_config signs host:<domain>:443, but Lambda SigV4 auth
+# verifies host:<domain> (no port), causing InvalidSignatureException.
+# Instead, the browser obtains temporary credentials via Cognito Identity Pool
+# and signs requests directly (correct host header, no CloudFront in the path).
 resource "aws_lambda_function_url" "stream_agent" {
   function_name      = aws_lambda_function.stream_agent.function_name
   authorization_type = "AWS_IAM"
   invoke_mode        = "RESPONSE_STREAM"
+
+  cors {
+    allow_credentials = false
+    allow_origins = [
+      "http://localhost:3000",
+      "https://${aws_cloudfront_distribution.chatbot.domain_name}",
+    ]
+    allow_methods = ["POST"]
+    allow_headers = [
+      "content-type",
+      "authorization",
+      "x-amz-content-sha256",
+      "x-amz-date",
+      "x-amz-security-token",
+    ]
+    max_age = 300
+  }
 }
 
-# Allow CloudFront (and only this distribution) to invoke the Function URL.
-# function_url_auth_type is required for Lambda Function URL resource policies —
-# without it the IAM auth check fails even when the OAC signature is valid.
-resource "aws_lambda_permission" "stream_cloudfront" {
-  statement_id           = "AllowCloudFrontInvoke"
-  action                 = "lambda:InvokeFunctionUrl"
-  function_name          = aws_lambda_function.stream_agent.function_name
-  principal              = "cloudfront.amazonaws.com"
-  source_arn             = aws_cloudfront_distribution.chatbot.arn
-  function_url_auth_type = "AWS_IAM"
+# ── Cognito Identity Pool (browser SigV4 signing for Lambda Function URL) ────
+# Authenticated users get temporary IAM credentials to call the stream Lambda
+# directly — bypassing CloudFront OAC whose host:443 signing breaks Lambda auth.
+
+resource "aws_cognito_identity_pool" "main" {
+  identity_pool_name               = "${local.project_name}-identity-pool"
+  allow_unauthenticated_identities = false
+
+  cognito_identity_providers {
+    client_id               = aws_cognito_user_pool_client.main.id
+    provider_name           = "cognito-idp.${local.region}.amazonaws.com/${aws_cognito_user_pool.main.id}"
+    server_side_token_check = false
+  }
+}
+
+resource "aws_iam_role" "cognito_authenticated" {
+  name = "${local.project_name}-cognito-auth-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Federated = "cognito-identity.amazonaws.com" }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "cognito-identity.amazonaws.com:aud" = aws_cognito_identity_pool.main.id
+        }
+        "ForAnyValue:StringLike" = {
+          "cognito-identity.amazonaws.com:amr" = "authenticated"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "cognito_authenticated" {
+  name = "stream_lambda_invoke"
+  role = aws_iam_role.cognito_authenticated.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "lambda:InvokeFunctionUrl"
+      Resource = aws_lambda_function.stream_agent.arn
+    }]
+  })
+}
+
+resource "aws_cognito_identity_pool_roles_attachment" "main" {
+  identity_pool_id = aws_cognito_identity_pool.main.id
+
+  roles = {
+    authenticated = aws_iam_role.cognito_authenticated.arn
+  }
 }
 
 # ── S3 bucket for chatbot static files ───────────────────────────────────────
@@ -440,36 +505,6 @@ resource "aws_cloudfront_origin_access_control" "chatbot" {
   signing_protocol                  = "sigv4"
 }
 
-# OAC for the Lambda Function URL origin — CloudFront uses this to SigV4-sign
-# requests forwarded to the stream Lambda.
-resource "aws_cloudfront_origin_access_control" "stream_lambda" {
-  name                              = "${local.project_name}-stream"
-  origin_access_control_origin_type = "lambda"
-  signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"
-}
-
-# Kept temporarily so Terraform doesn't try to delete it while it's still
-# referenced by a CloudFront behavior that hasn't finished propagating.
-# Remove in next iteration once CloudFront has deployed without the reference.
-resource "aws_cloudfront_origin_request_policy" "stream_lambda" {
-  name = "${local.project_name}-stream-lambda"
-
-  headers_config {
-    header_behavior = "whitelist"
-    headers {
-      items = ["X-User-Token", "Content-Type"]
-    }
-  }
-
-  cookies_config {
-    cookie_behavior = "none"
-  }
-
-  query_strings_config {
-    query_string_behavior = "none"
-  }
-}
 
 resource "aws_cloudfront_distribution" "chatbot" {
   enabled             = true
@@ -480,44 +515,6 @@ resource "aws_cloudfront_distribution" "chatbot" {
     domain_name              = aws_s3_bucket.chatbot.bucket_regional_domain_name
     origin_id                = "s3-chatbot"
     origin_access_control_id = aws_cloudfront_origin_access_control.chatbot.id
-  }
-
-  # ── Lambda Function URL origin (streaming agent) ──────────────────────────────
-  origin {
-    # Strip "https://" and trailing "/" from the Function URL
-    domain_name              = trimsuffix(trimprefix(aws_lambda_function_url.stream_agent.function_url, "https://"), "/")
-    origin_id                = "lambda-stream"
-    origin_access_control_id = aws_cloudfront_origin_access_control.stream_lambda.id
-
-    custom_origin_config {
-      http_port                = 80
-      https_port               = 443
-      origin_protocol_policy   = "https-only"
-      origin_ssl_protocols     = ["TLSv1.2"]
-      # Allow up to 58 s for the streaming response (Lambda timeout = 55 s)
-      origin_read_timeout      = 58
-      origin_keepalive_timeout = 5
-    }
-  }
-
-  # ── /stream → Lambda (POST, no caching, forward only needed headers) ────────
-  ordered_cache_behavior {
-    path_pattern     = "/stream"
-    target_origin_id = "lambda-stream"
-
-    allowed_methods = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-    cached_methods  = ["GET", "HEAD"]
-
-    viewer_protocol_policy = "redirect-to-https"
-    compress               = false
-
-    # CachingDisabled (AWS managed policy)
-    cache_policy_id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
-    # No origin request policy: OAC signs only host, x-amz-date, and
-    # x-amz-content-sha256 (the body hash). Any custom header in the signed set
-    # (X-User-Token, Content-Type) triggers InvalidSignatureException because
-    # CloudFront may normalise them before forwarding. The JWT is instead sent
-    # inside the JSON body, which is covered by x-amz-content-sha256.
   }
 
   # ── Default → S3 (static files) ───────────────────────────────────────────────
@@ -615,6 +612,15 @@ output "cloudfront_url" {
 }
 
 output "stream_url" {
-  description = "CloudFront /stream endpoint (proxied to Lambda with OAC signing)"
-  value       = "https://${aws_cloudfront_distribution.chatbot.domain_name}/stream"
+  description = "Lambda Function URL called directly by the browser with SigV4 (via Cognito Identity credentials)"
+  value       = aws_lambda_function_url.stream_agent.function_url
+}
+
+output "identity_pool_id" {
+  description = "Cognito Identity Pool ID — browser exchanges ID token for temp AWS credentials"
+  value       = aws_cognito_identity_pool.main.id
+}
+
+output "region" {
+  value = local.region
 }

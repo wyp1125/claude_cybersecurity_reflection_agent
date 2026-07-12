@@ -9,7 +9,9 @@
   },
   "dependencies": {
     "react": "^18.3.0",
-    "react-dom": "^18.3.0"
+    "react-dom": "^18.3.0",
+    "@aws-sdk/client-cognito-identity": "^3.0.0",
+    "aws4fetch": "^1.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.0",

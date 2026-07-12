@@ -73,7 +73,7 @@ export default function Chat({ config, token, onLogout }) {
           })
           setRoundStatus(null)
         },
-      })
+      }, config)
     } catch (err) {
       if (err instanceof QuotaError) {
         setQuotaExhausted(true)

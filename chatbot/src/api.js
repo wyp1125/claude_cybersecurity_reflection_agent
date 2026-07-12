@@ -1,3 +1,6 @@
+import { CognitoIdentityClient, GetIdCommand, GetCredentialsForIdentityCommand } from '@aws-sdk/client-cognito-identity'
+import { AwsClient } from 'aws4fetch'
+
 export class QuotaError extends Error {
   constructor(message) {
     super(message)
@@ -5,58 +8,72 @@ export class QuotaError extends Error {
   }
 }
 
-// Non-streaming fallback (kept for reference, not used by the chatbot UI)
-export async function invokeAgent(apiUrl, idToken, inputText) {
-  const resp = await fetch(apiUrl, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${idToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ inputText }),
+// ── Cognito Identity credential cache ─────────────────────────────────────────
+// Browser exchanges its Cognito ID token for temporary IAM credentials so it
+// can SigV4-sign requests directly to the Lambda Function URL. CloudFront OAC
+// is NOT used (it signs host:<domain>:443 but Lambda verifies host:<domain>).
+
+let _awsClient = null
+let _credExpiry = 0
+
+async function getSignedClient(config, idToken) {
+  // Reuse cached client if credentials don't expire within 5 minutes
+  if (_awsClient && Date.now() < _credExpiry - 5 * 60 * 1000) {
+    return _awsClient
+  }
+
+  const identity = new CognitoIdentityClient({ region: config.region })
+  const providerKey = `cognito-idp.${config.region}.amazonaws.com/${config.userPoolId}`
+
+  const { IdentityId } = await identity.send(new GetIdCommand({
+    IdentityPoolId: config.identityPoolId,
+    Logins: { [providerKey]: idToken },
+  }))
+
+  const { Credentials } = await identity.send(new GetCredentialsForIdentityCommand({
+    IdentityId,
+    Logins: { [providerKey]: idToken },
+  }))
+
+  _credExpiry = new Date(Credentials.Expiration).getTime()
+  _awsClient = new AwsClient({
+    accessKeyId:     Credentials.AccessKeyId,
+    secretAccessKey: Credentials.SecretKey,
+    sessionToken:    Credentials.SessionToken,
+    region:          config.region,
+    service:         'lambda',
   })
-  if (resp.status === 429) {
-    const data = await resp.json().catch(() => ({}))
-    throw new QuotaError(data.error || 'Call limit reached')
-  }
-  if (!resp.ok) {
-    const data = await resp.json().catch(() => ({}))
-    throw new Error(data.error || `HTTP ${resp.status}`)
-  }
-  return resp.json()
+  return _awsClient
 }
 
-/**
- * Invoke the streaming agent via Lambda Function URL.
- *
- * SSE events emitted by the Lambda:
- *   { type: 'round_start', round, total }
- *   { type: 'token',       content }
- *   { type: 'round_end',   round, score, passed }
- *   { type: 'done',        score, rounds }
- *   { type: 'error',       message, code? }
- *
- * @param {string}   streamUrl - Lambda Function URL
- * @param {string}   idToken   - Cognito id_token
- * @param {string}   inputText
- * @param {object}   callbacks - { onRoundStart, onToken, onRoundEnd, onDone, onError }
- */
-export async function invokeAgentStreaming(streamUrl, idToken, inputText, callbacks = {}) {
-  // Token is in the body (not a header) so CloudFront OAC only signs the
-  // body hash — custom headers in the signed set cause InvalidSignatureException
-  // when CloudFront normalises them in-flight.
-  const resp = await fetch(streamUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ inputText, token: `Bearer ${idToken}` }),
-  })
+// ── Streaming agent invocation ────────────────────────────────────────────────
+
+export async function invokeAgentStreaming(streamUrl, idToken, inputText, callbacks = {}, config = null) {
+  const body = JSON.stringify({ inputText, token: `Bearer ${idToken}` })
+
+  let resp
+  if (config?.identityPoolId) {
+    // Sign the request with temporary IAM credentials from Cognito Identity Pool
+    const aws = await getSignedClient(config, idToken)
+    resp = await aws.fetch(streamUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    })
+  } else {
+    resp = await fetch(streamUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    })
+  }
 
   if (!resp.ok || !resp.body) {
     throw new Error(`HTTP ${resp.status}`)
   }
 
-  // Guard: CloudFront may serve index.html (text/html) instead of SSE when
-  // the Lambda origin returns a 4xx and a custom_error_response is configured.
   const ct = resp.headers.get('content-type') ?? ''
   if (!ct.includes('text/event-stream') && !ct.includes('application/json')) {
-    // Drain a bit to surface a useful diagnostic
     const preview = await resp.text().then(t => t.slice(0, 120))
     throw new Error(`Expected SSE stream but got ${ct || 'unknown content-type'}. Body: ${preview}`)
   }
@@ -71,9 +88,8 @@ export async function invokeAgentStreaming(streamUrl, idToken, inputText, callba
 
     buffer += decoder.decode(value, { stream: true })
 
-    // SSE lines end with \n; events are separated by \n\n
     const lines = buffer.split('\n')
-    buffer = lines.pop() // hold back incomplete last line
+    buffer = lines.pop()
 
     for (const line of lines) {
       if (!line.startsWith('data: ')) continue
