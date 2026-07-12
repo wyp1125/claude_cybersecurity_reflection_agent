@@ -535,9 +535,15 @@ resource "aws_cloudfront_distribution" "chatbot" {
   }
 
   # Route unknown S3 paths to index.html for React SPA routing.
-  # Only 404 is needed: CloudFront OAC is authorised on the bucket, so S3
-  # returns 404 (not 403) for missing objects. We do NOT mask 403 here because
-  # that would swallow Lambda auth errors on the /stream behaviour.
+  # S3 returns 403 (not 404) for non-existent keys when only s3:GetObject is
+  # granted (no s3:ListBucket). Both 403 and 404 must be mapped. This is safe
+  # now that the Lambda origin is gone — there are no Lambda 403s to mask.
+  custom_error_response {
+    error_code         = 403
+    response_code      = 200
+    response_page_path = "/index.html"
+  }
+
   custom_error_response {
     error_code         = 404
     response_code      = 200
