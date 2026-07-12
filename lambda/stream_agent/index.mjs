@@ -17,9 +17,10 @@ const TABLE_NAME   = process.env.DYNAMODB_TABLE;
 const MODEL_ID     = process.env.BEDROCK_MODEL_ID  ?? 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
 const USER_POOL_ID = process.env.USER_POOL_ID;
 
-const UNLIMITED       = -1;
-const MAX_ROUNDS      = 5;
-const SCORE_THRESHOLD = 4;
+const UNLIMITED        = -1;
+const DEMO_CALLS_LIMIT = 2;   // trial quota for new Google sign-ins
+const MAX_ROUNDS       = 5;
+const SCORE_THRESHOLD  = 4;
 
 const ddb     = new DynamoDBClient({ region: REGION });
 const bedrock = new BedrockRuntimeClient({ region: REGION });
@@ -63,12 +64,37 @@ async function checkAndDecrement(email) {
     TableName: TABLE_NAME,
     Key: { email: { S: email } },
   }));
-  if (!result.Item) return { allowed: false, error: 'Access denied' };
 
-  const { calls_remaining } = unmarshall(result.Item);
-  const remaining = Number(calls_remaining);
+  const item = result.Item ? unmarshall(result.Item) : null;
+
+  // New user OR existing user without a quota field → provision demo calls.
+  // Conditional write is race-safe: if two concurrent first-calls arrive,
+  // only one wins the write; the other retries and hits the decrement path.
+  if (!item || item.calls_remaining === undefined) {
+    try {
+      await ddb.send(new UpdateItemCommand({
+        TableName: TABLE_NAME,
+        Key: { email: { S: email } },
+        UpdateExpression: 'SET calls_remaining = :quota',
+        ConditionExpression: item
+          ? 'attribute_not_exists(calls_remaining)'
+          : 'attribute_not_exists(email)',
+        ExpressionAttributeValues: { ':quota': { N: String(DEMO_CALLS_LIMIT - 1) } },
+      }));
+      return { allowed: true };
+    } catch (e) {
+      if (e.name === 'ConditionalCheckFailedException') {
+        return checkAndDecrement(email);
+      }
+      throw e;
+    }
+  }
+
+  const remaining = Number(item.calls_remaining);
   if (remaining === UNLIMITED) return { allowed: true };
-  if (remaining <= 0) return { allowed: false, error: 'Call limit reached (5/5 used)' };
+  if (remaining <= 0) {
+    return { allowed: false, error: `You've used all ${DEMO_CALLS_LIMIT} demo calls`, code: 'QUOTA_EXCEEDED' };
+  }
 
   try {
     await ddb.send(new UpdateItemCommand({
@@ -81,7 +107,7 @@ async function checkAndDecrement(email) {
     return { allowed: true };
   } catch (e) {
     if (e.name === 'ConditionalCheckFailedException') {
-      return { allowed: false, error: 'Call limit reached' };
+      return { allowed: false, error: `You've used all ${DEMO_CALLS_LIMIT} demo calls`, code: 'QUOTA_EXCEEDED' };
     }
     throw e;
   }
@@ -175,9 +201,9 @@ export const handler = awslambda.streamifyResponse(async (event, responseStream)
     }
 
     // ── Quota ─────────────────────────────────────────────────────────────────
-    const { allowed, error: quotaError } = await checkAndDecrement(claims.email);
+    const { allowed, error: quotaError, code: quotaCode } = await checkAndDecrement(claims.email);
     if (!allowed) {
-      httpStream.write(sse({ type: 'error', message: quotaError, code: 'QUOTA_EXCEEDED' }));
+      httpStream.write(sse({ type: 'error', message: quotaError, code: quotaCode ?? 'QUOTA_EXCEEDED' }));
       return;
     }
 
