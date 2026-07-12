@@ -481,7 +481,7 @@ resource "aws_iam_role_policy" "cognito_authenticated" {
     Version = "2012-10-17"
     Statement = [{
       Effect   = "Allow"
-      Action   = "lambda:InvokeFunctionUrl"
+      Action   = ["lambda:InvokeFunctionUrl", "lambda:InvokeFunction"]
       Resource = aws_lambda_function.stream_agent.arn
     }]
   })
