@@ -449,6 +449,28 @@ resource "aws_cloudfront_origin_access_control" "stream_lambda" {
   signing_protocol                  = "sigv4"
 }
 
+# Kept temporarily so Terraform doesn't try to delete it while it's still
+# referenced by a CloudFront behavior that hasn't finished propagating.
+# Remove in next iteration once CloudFront has deployed without the reference.
+resource "aws_cloudfront_origin_request_policy" "stream_lambda" {
+  name = "${local.project_name}-stream-lambda"
+
+  headers_config {
+    header_behavior = "whitelist"
+    headers {
+      items = ["X-User-Token", "Content-Type"]
+    }
+  }
+
+  cookies_config {
+    cookie_behavior = "none"
+  }
+
+  query_strings_config {
+    query_string_behavior = "none"
+  }
+}
+
 resource "aws_cloudfront_distribution" "chatbot" {
   enabled             = true
   default_root_object = "index.html"
