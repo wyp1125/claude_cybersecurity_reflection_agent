@@ -425,6 +425,18 @@ resource "aws_lambda_function_url" "stream_agent" {
   }
 }
 
+# Resource-based policy: allows the Cognito auth role to invoke the function URL.
+# Lambda Function URLs with AuthType = AWS_IAM require BOTH an identity-based
+# policy on the caller's role AND a resource-based policy on the function itself.
+# The identity-based policy alone is insufficient for federated (Cognito) callers.
+resource "aws_lambda_permission" "cognito_invoke_url" {
+  statement_id           = "AllowCognitoInvokeFunctionUrl"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.stream_agent.function_name
+  principal              = aws_iam_role.cognito_authenticated.arn
+  function_url_auth_type = "AWS_IAM"
+}
+
 # ── Cognito Identity Pool (browser SigV4 signing for Lambda Function URL) ────
 # Authenticated users get temporary IAM credentials to call the stream Lambda
 # directly — bypassing CloudFront OAC whose host:443 signing breaks Lambda auth.
