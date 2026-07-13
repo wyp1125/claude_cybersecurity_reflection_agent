@@ -36,7 +36,7 @@ Browser (React + Vite)
 
 ```
 push to main
-  └── GitHub Actions (deploy_api_gateway.yml)
+  └── GitHub Actions (deploy_chatbot.yml)
         ├── terraform apply  (Cognito, Lambda, CloudFront, DynamoDB, IAM)
         ├── npm run build    (React chatbot)
         └── aws s3 sync + CloudFront invalidation
@@ -67,7 +67,7 @@ push to main
 │       └── main.tf                 # All chatbot infra: Cognito, Lambda, CloudFront, DynamoDB, IAM
 │
 └── .github/workflows/
-    └── deploy_api_gateway.yml      # CI/CD: terraform apply → build → S3 deploy → CloudFront invalidation
+    └── deploy_chatbot.yml      # CI/CD: terraform apply → build → S3 deploy → CloudFront invalidation
 ```
 
 ## Setup

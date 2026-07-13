@@ -1,4 +1,4 @@
-name: Deploy API Gateway
+name: Deploy Chatbot
 
 on:
   push:
@@ -7,14 +7,14 @@ on:
       - "lambda/**"
       - "terraform/api_gateway/**"
       - "chatbot/**"
-      - ".github/workflows/deploy_api_gateway.yml"
+      - ".github/workflows/deploy_chatbot.yml"
   pull_request:
     branches: [main]
     paths:
       - "lambda/**"
       - "terraform/api_gateway/**"
       - "chatbot/**"
-      - ".github/workflows/deploy_api_gateway.yml"
+      - ".github/workflows/deploy_chatbot.yml"
 
 env:
   AWS_REGION: us-east-1
